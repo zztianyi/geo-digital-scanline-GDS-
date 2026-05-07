@@ -1,50 +1,25 @@
-﻿# Usage Guide
+# Usage Guide
 
-The scripts are research prototypes. They are organized by workflow stage rather than as a packaged Python library.
+This guide describes how to run the public code layout after cloning the repository.
 
-## 1. Prepare Data
+## 1. Create a local project config
 
-Required inputs usually include:
+```bash
+python scripts/00_project/project_manager.py init
+python scripts/00_project/project_manager.py check
+```
 
-- A 3D mesh: `.glb`, `.obj`, `.ply`, or 3MX-derived mesh.
-- Optional point cloud: TXT with `x y z r g b`, LAS/LAZ, or PLY.
-- Arc/baseline configuration: see `configs/arc_config.example.json`.
+Edit `configs/project.local.json` and replace the example paths with your own mesh, point-cloud, intermediate-output, and figure-output paths. Keep this file local.
 
-Private data should be stored in `data/private/` or outside the repository.
+## 2. Follow the workflow folders
 
-## 2. Fit Baseline and Generate Arc Config
+Run scripts in this general order:
 
-Use `2d_feat.py` to filter point-cloud data and fit an arc baseline. The fitted center, radius, angle range, and height range are saved to a config JSON.
+1. `scripts/01_model_io/` for model and point-cloud inspection.
+2. `scripts/02_scanline_setup/` for baseline fitting and scanline preparation.
+3. `scripts/03_slicing_profiles/` for mesh slicing and profile extraction.
+4. `scripts/04_structure_recognition/` for profile-level recognition and cross-profile linking.
+5. `scripts/05_reconstruction_volume/` for reconstruction, volume, voxel, and KDE analysis.
+6. `scripts/06_visualization/` for figures and visual checks.
 
-Related scripts:
-
-- `2d_feat.py`
-- `2d_ceshi.py`
-- `projection.py`
-- `Vertical_Slice.py`
-
-## 3. Slice Mesh into Digital Scanlines
-
-Use `slice_generator.py` or the slicing utilities in `Multi_profit.py` to compute intersections between scanline planes and the triangular mesh.
-
-Outputs are typically pickle files containing line segments and face indices. Keep those outputs under `outputs/intermediate/`.
-
-## 4. Extract and Order Profile Structures
-
-Use path-ordering and connectivity utilities in `image_.py`, `part.py`, `Multi_profit.py`, and `generate_normals.py` to merge fragmented line segments and compute local normals.
-
-## 5. Group Features Across Profiles
-
-Use `Multi_profit.py`, `group_centroid.py`, and `line_face_extraction.py` to collect feature groups, centroids, and line-face correspondence across slices.
-
-## 6. Reconstruct and Quantify Candidate Blocks
-
-Use `structural.py`, `surface_merge.py`, `voxel_ceshi.py`, `point_dbscan.py`, and `kde.py` for face clustering, voxelization, volume estimation, density visualization, and block centroid extraction.
-
-## 7. Plot and Export Figures
-
-Use `plt_.py`, `plt_ploter.py`, `kde.py`, `slice_generator_ceshi.py`, and `generate_normals.py` for visualization and publication-style figures.
-
-## Notes
-
-Some scripts still expose configuration variables near their `main` sections. For a new dataset, update those paths to point to your local `configs/paths.local.json` or your own data locations.
+The scripts are research utilities rather than a single packaged command-line application. Each stage exposes intermediate files so the workflow can be inspected and adjusted.

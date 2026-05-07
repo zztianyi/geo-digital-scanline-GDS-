@@ -1,0 +1,35 @@
+{
+  "project_name": "Digital Scanline Framework for Complex Rock-Wall Structure Recognition",
+  "description": "Standard local project file for the digital scanline framework.",
+  "paths": {
+    "arc_config": "configs/arc_config.example.json",
+    "point_cloud_txt": "data/examples/sample_points.txt",
+    "sample_outcrop_txt": "data/examples/sample_outcrop.txt",
+    "sample_outcrop_ply": "data/examples/sample_outcrop.ply",
+    "sample_texture": "data/examples/Tile_5_0.jpg",
+    "sample_dsm_mesh": "data/examples/sample_outcrop_dsm_mesh.obj",
+    "raw_model_dir": "data/private/raw_model",
+    "three_mx_scene_dir": "data/private/3mx_scene",
+    "mesh_model": "data/private/raw_model/model.glb",
+    "combined_model_obj": "data/private/raw_model/combined_model.obj",
+    "segmented_mesh": "data/private/raw_model/segmented_mesh.obj",
+    "slice_output": "outputs/intermediate/all_slices_output_faces.pkl",
+    "multi_profile_output": "outputs/intermediate/multi_slice_results.pkl",
+    "line_face_output": "outputs/intermediate/line_face_data.pkl",
+    "group_centroid_output": "outputs/intermediate/group_centroid_only.pkl",
+    "face_distance_matrix": "outputs/intermediate/face_dist_matrix.pkl",
+    "voxel_output": "outputs/intermediate/voxels_sparse.pkl",
+    "kde_model_output": "outputs/intermediate/kde_model.pkl",
+    "kde_result_output": "outputs/intermediate/kde_density.pkl",
+    "centroid_las_output": "outputs/intermediate/cluster_centroids.las",
+    "segment_lines_output": "outputs/intermediate/segments_lines.las",
+    "extracted_faces_output": "outputs/intermediate/extracted_faces.obj",
+    "figure_output_dir": "outputs/figures",
+    "font_zh": "data/examples/fonts/simsun.ttc"
+  },
+  "scanline": {
+    "default_slice_position": 62,
+    "default_slice_step": 0.05,
+    "notes": "Adjust these values to match the model scale and desired scanline density."
+  }
+}

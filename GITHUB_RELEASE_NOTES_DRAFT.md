@@ -2,7 +2,7 @@
 
 ## Project Name Candidates
 
-- Rock Wall Structural Information Extraction Toolkit
+- Digital Scanline Framework for Complex Rock-Wall Structure Recognition
 - Digital Scanline Rock Structure Toolkit
 - RockSlope Scanline Toolkit
 

@@ -11,7 +11,7 @@
     <div class="hero-inner">
       <div class="eyebrow">Digital Scanline Framework</div>
       <h1>面向复杂岩壁结构识别的数字测线框架</h1>
-      <p class="lead">项目以数字测线为核心组织方式，将复杂岩壁表面转化为可追踪、可识别、可重建、可量化的结构信息，并服务于潜在危险体体积估算和现场治理决策。</p>
+      <p class="lead">项目通过“复杂特征降维、连续性密度采样、三维回投表达”把复杂岩壁转化为可追踪、可识别、可重建、可量化的结构信息，为潜在危险体体积估算和现场治理决策提供数据基础。</p>
       <div class="hero-actions">
         <a class="button primary" href="showcase.en.html">English Version</a>
         <a class="button" href="usage_guide.zh-CN.md">中文使用指南</a>
@@ -27,11 +27,11 @@
           <p class="section-kicker">项目重点</p>
           <h2>用二维剖面的稳定性，去理解三维地质体的复杂性。</h2>
           <p>高陡岩壁的结构面、裂隙、岩穴和悬挑块体往往在三维空间中交织发育。直接在三维模型上识别，容易遇到遮挡、碎片化、路径无序和尺度不一致等问题，也会显著增加算法设计、维护和后续扩展的难度。</p>
-          <p>因此，本项目将核心方法概括为 <strong>数字测线框架</strong>：以三维岩壁模型为基础，沿拟合基线布设一组高密度、可调节的数字测线，把复杂空间结构转化为连续剖面问题；再在二维剖面中完成路径追踪、结构识别和特征组织，最后回到三维空间进行结构重建和体积估算。</p>
+          <p>因此，本项目将核心方法概括为 <strong>数字测线框架</strong>：先把三维复杂特征降维到二维剖面中理解和识别，再通过高密度、可调节的测线采样，使离散剖面在目标尺度上近似代表连续岩体，最后把二维识别结果回投到三维空间进行结构重建和体积估算。</p>
           <p>这个框架的数学思维在于：岩体本身是连续地质体，而测线是离散采样。通过采样密度控制，可以让离散观测在特定尺度上稳定逼近连续结构，从而兼顾地质解释、算法稳定性和工程可用性。</p>
         </div>
         <div class="stats" aria-label="project status summary">
-          <div class="stat"><strong>数字测线框架</strong><span>复杂结构剖面化、连续性密度采样、三维空间表达</span></div>
+          <div class="stat"><strong>数字测线框架</strong><span>复杂特征降维、连续性密度采样、三维回投表达</span></div>
           <div class="stat"><strong>Volume</strong><span>可把结构识别结果转化为潜在危险体体积估算</span></div>
           <div class="stat"><strong>KDE</strong><span>支持不同尺寸块体的空间密度分布表达</span></div>
           <div class="stat"><strong>Fusion</strong><span>融合框架已建立，并实现了部分应用场景</span></div>
@@ -144,10 +144,9 @@
   </main>
 
   <footer class="footer">
-    <div class="section-inner">Rock Wall Structural Information Extraction Toolkit · 中文项目展示页</div>
+    <div class="section-inner">Digital Scanline Framework for Complex Rock-Wall Structure Recognition · 中文项目展示页</div>
   </footer>
 </body>
 </html>
-
 
 

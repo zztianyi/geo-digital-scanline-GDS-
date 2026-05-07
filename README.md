@@ -1,96 +1,71 @@
-﻿# Rock Wall Structural Information Extraction Toolkit
+# Digital Scanline Framework for Complex Rock-Wall Structure Recognition
 
-A research-oriented Python toolkit for extracting, representing, and visualizing structural information from complex rock-wall digital geological models. The project focuses on turning dense 3D mesh/point-cloud data into interpretable scanline profiles, detecting overhanging or discontinuous geometric structures, reconstructing candidate unstable blocks, and estimating spatial metrics such as volume and density.
+[中文说明](README.zh-CN.md) | [Project showcase](docs/index.html) | [Usage guide](docs/usage_guide.md) | [Script inventory](docs/script_inventory.md)
 
-> This repository is a sanitized open-source version of a graduate research prototype. Site names, institution names, author identifiers, and local data paths have been removed or replaced with generic examples.
+This repository contains a research-oriented Python workflow for extracting, representing, and visualizing structural information from complex rock-wall models. The framework uses **digital scanlines** as the organizing idea: a 3D rock-wall mesh or point cloud is sampled into a controlled sequence of 2D profile observations, geometric features are recognized on those profiles, and the results are reconstructed back into 3D for structural interpretation, candidate hazard-block volume estimation, and spatial density analysis.
 
-## Highlights
+The project is intended for engineering-geology and geomatics research workflows where raw 3D geometry is rich but difficult to interpret directly. Instead of treating the 3D model only as a visual object, the framework turns it into a set of computable structural observations.
 
-- Arc-based digital scanline layout for curved rock-wall baselines.
-- Mesh slicing and 3D-to-2D profile projection.
-- Graph/path-based ordering of fragmented section line segments.
-- Orthogonal vector field analysis for overhanging-feature recognition.
-- Multi-profile feature grouping, clustering, and 3D reconstruction support.
-- Voxel-based volume estimation and KDE-style density visualization.
-- Utilities for 3MX/OBJ/PLY/LAS workflows, PyVista/Open3D visualization, and publication-style plotting.
+## Core Idea
 
-## Project Showcase
+Complex rock-wall structures are continuous in space, while digital scanlines are discrete observations. The framework controls scanline density so that discrete profile samples can represent continuous structural behavior at a chosen analysis scale. This reduces the difficulty of algorithm design, makes intermediate results easier to inspect, and keeps the final interpretation anchored in the original 3D geometry.
 
-Visual project pages are available in two languages: [English](docs/showcase.en.html) / [中文](docs/showcase.zh-CN.html). They summarize the digital scanline framework, current results, application outputs, progress, and roadmap.
+## What The Workflow Does
 
-## Visual Examples
-
-The images below are exported visualization snapshots from the sanitized research workflow.
-
-![Mesh and structure visualization](docs/images/mesh_view_01.png)
-
-![Profile and feature visualization](docs/images/mesh_view_02.png)
-
-![Grouped feature visualization](docs/images/mesh_view_03.png)
+1. **Model input and inspection**: load point clouds, triangular meshes, and 3MX-derived resources.
+2. **Digital scanline setup**: fit a curved baseline and generate scanline planes with configurable spacing.
+3. **Profile extraction**: slice the 3D model into ordered 2D structural observation windows.
+4. **Structure recognition**: trace profile paths and identify local geometric features such as overhangs, cavities, and protrusions.
+5. **3D reconstruction and applications**: group features across neighboring profiles, reconstruct structural objects, estimate candidate block volumes, and analyze spatial density distributions.
+6. **Visualization**: produce showcase figures for model reconstruction, profile recognition, hazard-block volume ranking, and KDE-style spatial distribution maps.
 
 ## Repository Layout
 
 ```text
-.
-├── configs/                  # Example configs; replace with your own paths and model parameters
-├── data/examples/            # Tiny placeholders and data-format notes only
-├── docs/                     # Method description, usage guide, script inventory, privacy notes
-├── polt/                     # Plotting helper scripts kept from the original prototype
-├── outputs/                  # Ignored runtime output directory
-├── *.py                      # Research scripts and processing modules
-├── requirements.txt
-└── README.md
+gds_project/                  Shared configuration helpers
+configs/                      Example project configuration files
+scripts/00_project/           Project config creation and inspection
+scripts/01_model_io/          Mesh, point-cloud, and 3MX input utilities
+scripts/02_scanline_setup/    Baseline fitting and scanline preparation
+scripts/03_slicing_profiles/  Mesh slicing and 2D profile extraction
+scripts/04_structure_recognition/ Profile-level and cross-profile recognition
+scripts/05_reconstruction_volume/ 3D reconstruction, volume, voxel, and KDE analysis
+scripts/06_visualization/     Plotting and visual inspection scripts
+scripts/99_experiments/       Experimental or legacy prototypes
+docs/                         Static showcase pages and documentation
 ```
 
-## Quick Start
+## Configuration
+
+Machine-specific paths are intentionally not hard-coded in the scripts. They are resolved through:
+
+```python
+from gds_project.config import get_path, get_font_properties
+```
+
+`gds_project.config` is part of this repository. `get_path()` reads path keys from `configs/project.local.json` when it exists, otherwise it falls back to `configs/project.example.json`. Create a local config before running project scripts:
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+python scripts/00_project/project_manager.py init
+python scripts/00_project/project_manager.py check
 ```
 
-Prepare your own data and configuration:
+Edit `configs/project.local.json` to point to your private meshes, point clouds, intermediate outputs, and figure folders. This local file is ignored by Git.
 
-1. Copy `configs/paths.example.json` to `configs/paths.local.json`.
-2. Copy or generate `configs/arc_config.example.json` as your scanline arc configuration.
-3. Put private meshes/point clouds outside Git, or under `data/private/` which is ignored.
-4. Run scripts according to `docs/usage_guide.md` and `docs/script_inventory.md`.
+## Static Showcase
 
-## Typical Workflow
+The project showcase is a static site under `docs/`. When GitHub Pages is enabled for this repository, the public entry page is:
 
-1. Fit or define the curved baseline of the rock wall.
-2. Generate scanline planes and extract mesh-section line segments.
-3. Order fragmented segments into profile paths.
-4. Compute local normals and detect overhanging profile features.
-5. Aggregate features across scanlines and cluster candidate structural units.
-6. Reconstruct 3D line/face/voxel representations.
-7. Visualize structural units, density patterns, and volume metrics.
+```text
+https://zztianyi.github.io/geo-digital-scanline-GDS-/
+```
 
-## Main Entry Scripts
+The same content can be opened locally from `docs/index.html`.
 
-- `2d_feat.py`: point-cloud filtering, arc fitting, and 2D baseline/profile analysis.
-- `2d_ceshi.py`: simple arc-grid visualization over a point cloud.
-- `slice_generator.py`: generate mesh slice intersections along scanline positions.
-- `Multi_profit.py`: multi-profile slicing and feature grouping workflow.
-- `generate_normals.py`: detailed normal/vector-field computation and plotting utilities.
-- `line_face_extraction.py`: collect slice-line to mesh-face correspondence.
-- `structural.py`: face clustering, voxelization, and structural volume workflow.
-- `voxel_ceshi.py`, `kde.py`, `point_dbscan.py`: voxel, density, and cluster visualization.
+## Status
 
-See `docs/script_inventory.md` for a fuller map.
+The current repository is a cleaned research prototype. The core digital scanline workflow, partial 3D reconstruction path, volume-oriented application example, and visualization pages are organized for public review. Future work will focus on stronger recognition accuracy, better generalization across rock-wall types, and tighter fusion between 2D profile reasoning and 3D model analysis.
 
-## Data and Privacy
+## License
 
-Large source data such as raw 3D meshes, LAS/PLY files, 3MX scene folders, intermediate pickle files, and private case data are intentionally excluded from Git. The current `.gitignore` prevents accidental upload of these files.
-
-Before publishing, read `docs/privacy_checklist.md` once more. This repository is prepared under the Apache-2.0 license.
-
-## Citation
-
-If you use the methodology, please cite this repository and the related thesis/paper once a public citation format is available. See `CITATION.cff` for the repository citation metadata. The repository description intentionally omits personal and site-specific identifiers.
-
-
-
-
-
+Apache License 2.0.
