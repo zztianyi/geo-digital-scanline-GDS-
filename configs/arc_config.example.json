@@ -1,0 +1,11 @@
+﻿{
+  "center": [0.0, 0.0, 0.0],
+  "radius": 50.0,
+  "angle_min": -0.75,
+  "angle_max": 0.75,
+  "angle_range": [-0.75, 0.75],
+  "z_min": 0.0,
+  "z_max": 30.0,
+  "arc_length_range": [0.0, 75.0],
+  "description": "Example arc configuration. Replace with fitted parameters for your own rock-wall baseline."
+}

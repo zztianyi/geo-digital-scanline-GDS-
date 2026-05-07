@@ -1,0 +1,9 @@
+﻿{
+  "mesh_path": "data/private/raw_model/model.glb",
+  "point_cloud_txt": "data/examples/sample_points.txt",
+  "arc_config": "configs/arc_config.example.json",
+  "slice_output": "outputs/intermediate/all_slices.pkl",
+  "line_face_output": "outputs/intermediate/line_face_data.pkl",
+  "voxel_output": "outputs/intermediate/voxels_sparse.pkl",
+  "note": "Copy this file to paths.local.json and point it to your own private data. paths.local.json is ignored by Git."
+}

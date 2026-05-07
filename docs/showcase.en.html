@@ -1,0 +1,152 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rock Wall Structural Information Extraction Toolkit | Showcase</title>
+  <link rel="stylesheet" href="showcase.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Digital Scanline Framework</div>
+      <h1>A digital scanline framework for complex rock-wall structure recognition</h1>
+      <p class="lead">The project uses digital scanlines as the core organizing framework to transform complex rock-wall surfaces into traceable, recognizable, reconstructable, and quantifiable structural information for hazard-block volume estimation and field mitigation support.</p>
+      <div class="hero-actions">
+        <a class="button primary" href="showcase.zh-CN.html">中文版本</a>
+        <a class="button" href="usage_guide.md">Usage Guide</a>
+        <a class="button" href="script_inventory.md">Script Inventory</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-inner intro-grid">
+        <div>
+          <p class="section-kicker">Core Idea</p>
+          <h2>Use the stability of 2D profiles to understand and compute the complexity of 3D geological bodies.</h2>
+          <p>Joints, fractures, cavities, and overhanging blocks are spatially intertwined in steep rock walls. Direct recognition in 3D often faces occlusion, fragmentation, unordered paths, and inconsistent scales, which also increases the difficulty of algorithm design, maintenance, and future development.</p>
+          <p>This project frames the method as a <strong>Digital Scanline Framework</strong>: a dense and adjustable set of digital scanlines is arranged along a fitted baseline on the 3D rock-wall model, converting complex spatial structures into profile-based recognition problems; detected 2D profile features are then organized across neighboring profiles and mapped back into 3D for reconstruction and volume estimation.</p>
+          <p>The mathematical idea is simple but important: the rock mass is continuous, while scanlines are discrete observations. By controlling sampling density, discrete observations can represent continuous structures at a chosen scale, balancing geological interpretation, algorithmic stability, and engineering usability.</p>
+        </div>
+        <div class="stats">
+          <div class="stat"><strong>Digital Scanlines</strong><span>Profile-based structure extraction, continuity-oriented sampling, and 3D spatial expression</span></div>
+          <div class="stat"><strong>Volume</strong><span>Recognition results support potential hazard-block volume estimation</span></div>
+          <div class="stat"><strong>KDE</strong><span>Spatial density analysis for block groups in different size ranges</span></div>
+          <div class="stat"><strong>Fusion</strong><span>The basic fusion framework and several applications are already implemented</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">Workflow</p>
+        <h2>Why convert a 3D problem into a sequence of 2D profile problems?</h2>
+        <div class="reason-grid">
+          <div class="reason"><h3>Lower cognitive complexity</h3><p>2D profiles convert occluded and intertwined 3D structures into continuous curves that are easier to inspect, understand, and validate.</p></div>
+          <div class="reason"><h3>Lower algorithmic complexity</h3><p>Path tracing, direction estimation, and local geometric rules are more stable in 2D, making the system easier to design, debug, maintain, and extend.</p></div>
+          <div class="reason"><h3>Approximate continuity</h3><p>Dense adjustable scanline sampling lets discrete profiles represent continuous rock-mass behavior at the intended analysis scale.</p></div>
+        </div>
+        <div class="workflow">
+          <div class="step"><img src="showcase_assets/flow-01-model.jpg" alt="3D model input" /><div class="step-body"><b>01</b><h3>3D model input</h3><p>Use a triangular mesh or point cloud to preserve spatial geometry and local surface variation.</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-02-arc.jpg" alt="Baseline fitting" /><div class="step-body"><b>02</b><h3>Baseline fitting and sampling control</h3><p>Fit a curved baseline and control scanline density to match the target analysis scale.</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-03-sampling.jpg" alt="Digital scanline slicing" /><div class="step-body"><b>03</b><h3>Digital scanline slicing</h3><p>Generate continuous profile planes along the baseline as 2D structural observation windows.</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-04-extract.jpg" alt="2D feature detection" /><div class="step-body"><b>04</b><h3>2D feature detection</h3><p>Trace profile paths, compute local directions, and detect overhangs, cavities, and protrusions.</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-05-cluster.jpg" alt="Cross-profile grouping" /><div class="step-body"><b>05</b><h3>Cross-profile grouping</h3><p>Connect corresponding features across neighboring profiles into clusterable structural groups.</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-06-reconstruct.jpg" alt="3D back-projection reconstruction" /><div class="step-body"><b>06</b><h3>3D back-projection reconstruction</h3><p>Project detected 2D features back into 3D as blocks, faces, voxels, and density fields.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">Method Results</p>
+        <h2>From mesh and scanlines to structural reconstruction</h2>
+        <div class="gallery">
+          <figure class="figure wide">
+            <img src="showcase_assets/showcase-overview.jpg" alt="Full workflow structural representation from mesh to scanline, extraction, and reconstruction" />
+            <figcaption><strong>Full workflow structural representation</strong><span>The method links the original mesh, scanline representation, 2D feature extraction, and reconstructed 3D mesh units.</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-arc-fit.jpg" alt="Straight-line fitting and arc fitting comparison" />
+            <figcaption><strong>Adaptive arc baseline</strong><span>Arc fitting better follows curved rock-wall outlines and supports more balanced scanline layout.</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-scanline.jpg" alt="A profile scanline extracted from a 3D mesh" />
+            <figcaption><strong>Profile extraction</strong><span>The intersection between the mesh and a slicing plane becomes a 2D profile curve for analysis.</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-path.jpg" alt="Profile path arrows and zoomed local structure" />
+            <figcaption><strong>Path tracing and local direction</strong><span>Ordered paths and local vectors provide the basis for overhang and abnormal-geometry detection.</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-centroids.jpg" alt="Structural groups and centroids" />
+            <figcaption><strong>Structural groups and centroids</strong><span>2D feature fragments are organized into structural groups, bridging profile recognition and 3D clustering.</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="dark-band">
+      <div class="section-inner split">
+        <div>
+          <p class="section-kicker">Application Result</p>
+          <h2>From detected structures to potential hazard-block volume estimation.</h2>
+          <p>The value of structural recognition is not only visualization. Detected structural groups can be reconstructed as 3D candidate blocks, and their volumes can be estimated. Larger potential hazard blocks can then be prioritized for field verification, clearing, anchoring, or protective-net planning.</p>
+          <p>The figure shows the ten largest reconstructed candidate blocks by volume, turning geometric extraction into engineering-oriented quantitative evidence.</p>
+        </div>
+        <figure class="figure tall">
+          <img src="showcase_assets/showcase-hazard-blocks.jpg" alt="Top ten largest potential hazard blocks by volume" />
+          <figcaption><strong>Top ten largest potential hazard blocks</strong><span>Reconstructed blocks and estimated volumes can support mitigation prioritization.</span></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner split">
+        <figure class="figure tall">
+          <img src="showcase_assets/showcase-kde-0p1-1m.png" alt="KDE map of 0.1 m to 1 m block spatial distribution" />
+          <figcaption><strong>KDE distribution for 0.1-1 m blocks</strong><span>Block groups in different size ranges can be analyzed separately to reveal spatial concentration.</span></figcaption>
+        </figure>
+        <div>
+          <p class="section-kicker">Spatial Distribution Analysis</p>
+          <h2>Density maps of different block-size ranges reveal structural zoning.</h2>
+          <p>Once structural units are detected and quantified, they can be grouped by size and analyzed through 3D kernel density estimation. Dense small-block regions may indicate strongly weathered, fractured, or fragmented zones, while concentrations of larger blocks may suggest more critical instability targets.</p>
+          <p>This connects geometric recognition, spatial statistics, and engineering interpretation, making the toolkit useful not only as a detector but also as a support tool for hazard zoning and field investigation planning.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="dark-band">
+      <div class="section-inner">
+        <p class="section-kicker">Current Progress</p>
+        <h2>A basic fusion framework has been established, and several application scenarios have already been implemented.</h2>
+        <div class="cards">
+          <div class="card"><span class="tag">Done</span><h3>Basic fusion framework</h3><p>The digital scanline framework connects 3D models, 2D profile recognition, cross-profile grouping, and 3D reconstruction.</p></div>
+          <div class="card"><span class="tag">Implemented</span><h3>Application-side validation</h3><p>The framework has produced application outputs such as candidate-block volume estimation, structural overlays, and KDE distributions for different block sizes.</p></div>
+          <div class="card"><span class="tag">Next</span><h3>Expansion and optimization</h3><p>The next stage is to expand application scenarios and optimize the base framework with new methods that improve recognition accuracy and generalization.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">Vision</p>
+        <h2>Toward a more precise, broader, and more integrated digital geology framework.</h2>
+        <div class="cards">
+          <div class="card light"><span class="tag">Direction 1</span><h3>Finer recognition of complex structures</h3><p>Future versions may introduce foundation-model or learning-based components for key generalization-heavy steps, while preserving stable geometric constraints through the code framework.</p></div>
+          <div class="card light"><span class="tag">Direction 2</span><h3>Broader geological applications</h3><p>The workflow can expand from overhanging-block recognition to rock-mass structure extraction, fracture and discontinuity representation, hazard zoning, and field-survey support.</p></div>
+          <div class="card light"><span class="tag">Direction 3</span><h3>2D framework and 3D model fusion</h3><p>2D profiles are powerful for stable detection; 3D models are powerful for spatial expression. A key goal is to combine their strengths for better geological interpretation.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="section-inner">Rock Wall Structural Information Extraction Toolkit · English showcase page</div>
+  </footer>
+</body>
+</html>
+
+

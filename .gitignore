@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+﻿# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
@@ -216,3 +216,41 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Project private and heavy geospatial / 3D data
+data/private/
+processed.ply
+*.las
+*.laz
+*.ply
+*.obj
+*.glb
+*.gltf
+*.3mx
+*.3mxb
+*.mtl
+*.stl
+*.pkl
+*.joblib
+*.npz
+*.npy
+*.vtk
+*.vtp
+*.vtu
+
+# Project runtime outputs
+outputs/
+ScreenCamera_*.json
+ScreenCapture_*.png
+kde.txt
+
+# Keep public documentation images
+!docs/images/*.png
+!docs/images/*.jpg
+!docs/images/*.jpeg
+!docs/showcase_assets/*.png
+!docs/showcase_assets/*.jpg
+!docs/showcase_assets/*.jpeg
+
+# Local configs
+configs/*.local.json
+configs/*private*.json

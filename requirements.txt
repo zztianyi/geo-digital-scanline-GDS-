@@ -1,0 +1,16 @@
+﻿numpy
+scipy
+scikit-learn
+matplotlib
+open3d
+trimesh
+pyvista
+vtk
+networkx
+tqdm
+shapely
+rtree
+laspy
+plyfile
+msgpack
+joblib

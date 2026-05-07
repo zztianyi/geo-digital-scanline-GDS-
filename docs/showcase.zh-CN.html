@@ -1,0 +1,153 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>岩壁结构信息提取工具集 | 项目展示</title>
+  <link rel="stylesheet" href="showcase.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Digital Scanline Framework</div>
+      <h1>面向复杂岩壁结构识别的数字测线框架</h1>
+      <p class="lead">项目以数字测线为核心组织方式，将复杂岩壁表面转化为可追踪、可识别、可重建、可量化的结构信息，并服务于潜在危险体体积估算和现场治理决策。</p>
+      <div class="hero-actions">
+        <a class="button primary" href="showcase.en.html">English Version</a>
+        <a class="button" href="usage_guide.zh-CN.md">中文使用指南</a>
+        <a class="button" href="script_inventory.zh-CN.md">脚本索引</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-inner intro-grid">
+        <div>
+          <p class="section-kicker">项目重点</p>
+          <h2>用二维剖面的稳定性，去理解三维地质体的复杂性。</h2>
+          <p>高陡岩壁的结构面、裂隙、岩穴和悬挑块体往往在三维空间中交织发育。直接在三维模型上识别，容易遇到遮挡、碎片化、路径无序和尺度不一致等问题，也会显著增加算法设计、维护和后续扩展的难度。</p>
+          <p>因此，本项目将核心方法概括为 <strong>数字测线框架</strong>：以三维岩壁模型为基础，沿拟合基线布设一组高密度、可调节的数字测线，把复杂空间结构转化为连续剖面问题；再在二维剖面中完成路径追踪、结构识别和特征组织，最后回到三维空间进行结构重建和体积估算。</p>
+          <p>这个框架的数学思维在于：岩体本身是连续地质体，而测线是离散采样。通过采样密度控制，可以让离散观测在特定尺度上稳定逼近连续结构，从而兼顾地质解释、算法稳定性和工程可用性。</p>
+        </div>
+        <div class="stats" aria-label="project status summary">
+          <div class="stat"><strong>数字测线框架</strong><span>复杂结构剖面化、连续性密度采样、三维空间表达</span></div>
+          <div class="stat"><strong>Volume</strong><span>可把结构识别结果转化为潜在危险体体积估算</span></div>
+          <div class="stat"><strong>KDE</strong><span>支持不同尺寸块体的空间密度分布表达</span></div>
+          <div class="stat"><strong>Fusion</strong><span>融合框架已建立，并实现了部分应用场景</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">核心工作流</p>
+        <h2>为什么要先把三维问题转成二维问题？</h2>
+        <div class="reason-grid">
+          <div class="reason"><h3>降低理解难度</h3><p>三维岩壁中的结构组合很复杂，二维剖面可以把遮挡和空间交织简化为连续曲线，让结构形态更容易被观察、解释和复核。</p></div>
+          <div class="reason"><h3>降低算法难度</h3><p>二维空间中路径追踪、方向判断和局部几何规则更稳定，算法更容易设计，也更便于调试、维护和后续开发。</p></div>
+          <div class="reason"><h3>保留连续性近似</h3><p>通过可调节的高密度测线采样，离散剖面可以在目标尺度上近似表达连续岩体，再通过三维回投恢复空间意义。</p></div>
+        </div>
+        <div class="workflow">
+          <div class="step"><img src="showcase_assets/flow-01-model.jpg" alt="三维模型输入" /><div class="step-body"><b>01</b><h3>三维模型输入</h3><p>以三角网格或点云表达岩壁表面，保留完整空间几何和局部起伏。</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-02-arc.jpg" alt="拟合基线" /><div class="step-body"><b>02</b><h3>拟合基线与采样控制</h3><p>用弧形基线贴合岩壁轮廓，并通过采样密度控制测线覆盖尺度。</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-03-sampling.jpg" alt="数字测线切片" /><div class="step-body"><b>03</b><h3>数字测线切片</h3><p>沿基线生成连续剖面，获得一系列二维结构观察窗口。</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-04-extract.jpg" alt="二维结构识别" /><div class="step-body"><b>04</b><h3>二维结构识别</h3><p>在剖面曲线上追踪路径、计算局部方向，并识别悬挑、凹腔和外突特征。</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-05-cluster.jpg" alt="跨剖面聚合" /><div class="step-body"><b>05</b><h3>跨剖面聚合</h3><p>把相邻剖面中的同类特征连接成结构组，得到可聚类的空间对象。</p></div></div>
+          <div class="step"><img src="showcase_assets/flow-06-reconstruct.jpg" alt="三维回投重建" /><div class="step-body"><b>06</b><h3>三维回投重建</h3><p>把二维识别结果回到三维模型中，形成块体、面片、体素和密度表达。</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">方法效果</p>
+        <h2>从网格、测线到结构重建的过程展示</h2>
+        <div class="gallery">
+          <figure class="figure wide">
+            <img src="showcase_assets/showcase-overview.jpg" alt="从原始网格到测线表达、二维结构提取和三维网格重建的流程成果图" />
+            <figcaption><strong>全流程结构表达</strong><span>展示从原网格到测线表达、二维结构提取、三维网格重建的完整链路。</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-arc-fit.jpg" alt="直线拟合与圆弧拟合对比" />
+            <figcaption><strong>自适应弧形基线</strong><span>圆弧拟合更贴近弯曲岩壁轮廓，为均衡布设测线提供基础。</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-scanline.jpg" alt="单条剖面线从三维网格中提取" />
+            <figcaption><strong>剖面测线提取</strong><span>将三维表面与剖切平面相交，得到可分析的二维剖面曲线。</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-path.jpg" alt="剖面路径方向箭头和局部放大" />
+            <figcaption><strong>路径追踪与方向判断</strong><span>有序路径和局部方向是识别悬挑结构、凹腔边界和异常几何的关键。</span></figcaption>
+          </figure>
+          <figure class="figure half">
+            <img src="showcase_assets/showcase-centroids.jpg" alt="结构组和质心点表达" />
+            <figcaption><strong>结构组与质心表达</strong><span>二维特征被组织成结构组，为跨剖面聚类和三维重建提供桥梁。</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="dark-band">
+      <div class="section-inner split">
+        <div>
+          <p class="section-kicker">应用结论</p>
+          <h2>从识别结果走向潜在危险体体积估算。</h2>
+          <p>结构识别的价值不止于“把红色区域画出来”。在后续分析中，识别到的结构组可以被重建为三维块体，并进一步计算体积。体积较大的潜在危险体往往更需要优先核查，它们可以为现场治理、清方、锚固、防护网布设等措施提供量化参考。</p>
+          <p>右侧图像展示了体积排名靠前的潜在危险块体。这样的结果让算法输出更接近工程问题：哪里可能存在块体，块体有多大，哪些对象应当优先进入现场复核。</p>
+        </div>
+        <figure class="figure tall">
+          <img src="showcase_assets/showcase-hazard-blocks.jpg" alt="前十个最大潜在危险块体体积展示" />
+          <figcaption><strong>前十个最大潜在危险块体</strong><span>由结构识别结果重建块体并估算体积，为治理优先级提供参考。</span></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner split">
+        <figure class="figure tall">
+          <img src="showcase_assets/showcase-kde-0p1-1m.png" alt="0.1m 到 1m 块体空间分布 KDE 图像" />
+          <figcaption><strong>0.1m-1m 尺寸块体 KDE 空间分布</strong><span>不同尺寸范围的块体可以分别估计空间密度，观察发育集中区。</span></figcaption>
+        </figure>
+        <div>
+          <p class="section-kicker">空间分布分析</p>
+          <h2>不同尺寸块体的密度分布，可以揭示结构发育分区。</h2>
+          <p>当结构单元被识别并量化后，可以按照块体尺度分组，进一步做三维空间核密度估计。小尺度块体的密集区可能对应强风化、破碎或裂隙密集区域；较大块体的聚集区则可能提示更值得关注的潜在失稳单元。</p>
+          <p>这类结果把几何识别、空间统计和工程解释连接起来，使项目不只是“识别算法”，也可以成为风险分区和现场调查布点的分析工具。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="dark-band">
+      <div class="section-inner">
+        <p class="section-kicker">当前进度</p>
+        <h2>目前项目已经建立基本融合框架，并实现了基于该框架的部分应用场景。</h2>
+        <div class="cards">
+          <div class="card"><span class="tag">已完成</span><h3>基础融合框架</h3><p>以数字测线框架为核心，已经连通三维模型、二维测线识别、跨剖面聚合和三维重建。</p></div>
+          <div class="card"><span class="tag">已实现</span><h3>应用端验证</h3><p>已经实现潜在危险体体积估算、结构叠加展示和不同尺寸块体 KDE 空间分布等应用结果。</p></div>
+          <div class="card"><span class="tag">下一步</span><h3>扩展与优化</h3><p>继续扩大应用场景，同时优化基础框架，引入新方法提升识别准确性和泛化性能。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <p class="section-kicker">未来愿景</p>
+        <h2>向更精细、更广泛、更融合的数字地质分析框架发展。</h2>
+        <div class="cards">
+          <div class="card light"><span class="tag">方向一</span><h3>更精细的复杂结构识别</h3><p>未来会引入基础模型或学习型组件，替代部分需要强泛化能力的关键步骤；同时用预设的几何框架和规则约束保证结果稳定可靠。</p></div>
+          <div class="card light"><span class="tag">方向二</span><h3>更广泛的应用场景</h3><p>从悬挑块体识别扩展到岩体结构识别、裂隙与结构面表达、风险分区和现场调查辅助等更多地质体研究任务。</p></div>
+          <div class="card light"><span class="tag">方向三</span><h3>二维框架与三维模型融合</h3><p>二维剖面适合稳定识别，三维模型适合空间表达。未来重点是更好地利用两者优势，让 2D 与 3D 协同服务地质解释。</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="section-inner">Rock Wall Structural Information Extraction Toolkit · 中文项目展示页</div>
+  </footer>
+</body>
+</html>
+
+
+
