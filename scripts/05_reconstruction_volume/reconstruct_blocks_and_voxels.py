@@ -14,6 +14,7 @@ from gds_project.config import get_path, get_font_properties
 import pickle
 import numpy as np
 import json
+import os
 import trimesh
 import open3d as o3d
 import networkx as nx
@@ -213,7 +214,8 @@ def voxel_union_o3d(all_meshes, voxel_size=0.05):
     )
     return voxel_grid, pcd
 
-def voxelize_faces_sparse(mesh_filtered, face_heights, grid_shape, origin, voxel_size):
+def voxelize_faces_sparse_legacy(mesh_filtered, face_heights, grid_shape, origin, voxel_size):
+    """Original sparse voxelizer retained as an explicit emergency fallback."""
     faces = mesh_filtered.faces
     vertices = mesh_filtered.vertices
     active_voxels = set()
@@ -241,6 +243,284 @@ def voxelize_faces_sparse(mesh_filtered, face_heights, grid_shape, origin, voxel
                     if path.contains_point(center[:2]) and (min_z <= center[2] <= max_z):
                         active_voxels.add((ix, iy, iz))
     return list(active_voxels)
+
+
+def encode_voxel_ids(ix, iy, iz, grid_shape):
+    """Encode voxel coordinates into checked uint64 linear IDs."""
+    shape = tuple(int(value) for value in grid_shape)
+    if len(shape) != 3 or any(value <= 0 for value in shape):
+        raise ValueError("grid_shape 必须是三个正整数")
+    cell_count = shape[0] * shape[1] * shape[2]
+    if cell_count >= 2**64:
+        raise OverflowError("网格 cell 数超过 uint64 线性 ID 容量")
+    ix = np.asarray(ix, dtype=np.uint64)
+    iy = np.asarray(iy, dtype=np.uint64)
+    iz = np.asarray(iz, dtype=np.uint64)
+    if np.any(ix >= shape[0]) or np.any(iy >= shape[1]) or np.any(iz >= shape[2]):
+        raise ValueError("体素坐标超出网格范围")
+    return (
+        (ix * np.uint64(shape[1]) + iy) * np.uint64(shape[2]) + iz
+    ).astype(np.uint64, copy=False)
+
+
+def decode_voxel_ids(ids, grid_shape):
+    """Decode checked uint64 linear IDs into an N×3 integer coordinate array."""
+    shape = tuple(int(value) for value in grid_shape)
+    if len(shape) != 3 or any(value <= 0 for value in shape):
+        raise ValueError("grid_shape 必须是三个正整数")
+    cell_count = shape[0] * shape[1] * shape[2]
+    if cell_count >= 2**64:
+        raise OverflowError("网格 cell 数超过 uint64 线性 ID 容量")
+    ids = np.asarray(ids, dtype=np.uint64)
+    if ids.size and int(ids.max()) >= cell_count:
+        raise ValueError("线性体素 ID 超出网格范围")
+    iz = ids % np.uint64(shape[2])
+    plane = ids // np.uint64(shape[2])
+    iy = plane % np.uint64(shape[1])
+    ix = plane // np.uint64(shape[1])
+    return np.column_stack((ix, iy, iz)).astype(np.int32, copy=False)
+
+
+def _merge_unique_voxel_runs(runs):
+    """Tree-merge sorted uint64 runs without a Python tuple set."""
+    current = [np.asarray(run, dtype=np.uint64) for run in runs if len(run)]
+    while len(current) > 1:
+        merged = []
+        for index_pair in range(0, len(current), 2):
+            if index_pair + 1 == len(current):
+                merged.append(current[index_pair])
+            else:
+                merged.append(np.union1d(current[index_pair], current[index_pair + 1]))
+        current = merged
+    return current[0] if current else np.empty(0, dtype=np.uint64)
+
+
+def _make_balanced_voxel_payloads(
+    mesh_filtered,
+    face_heights,
+    grid_shape,
+    origin,
+    voxel_size,
+    workers,
+    tasks_per_worker,
+    max_xy_candidates,
+    max_emit_ids,
+    flush_ids,
+):
+    """Build bounded face batches using a cheap bbox×Z work estimate."""
+    import heapq
+
+    items = list(face_heights.items())
+    if not items:
+        return [], {"faces_seen": 0, "estimated_cost": 0.0}
+    face_ids = np.fromiter((int(item[0]) for item in items), dtype=np.int64)
+    heights = np.fromiter((float(item[1]) for item in items), dtype=np.float64)
+    faces = np.asarray(mesh_filtered.faces)
+    vertices = np.asarray(mesh_filtered.vertices)
+    if np.any(face_ids < 0) or np.any(face_ids >= len(faces)):
+        raise ValueError("来源面索引越界；测线与重建必须使用同一网格")
+    triangles = np.ascontiguousarray(vertices[faces[face_ids]], dtype=np.float64)
+    origin = np.asarray(origin, dtype=np.float64)
+    shape = np.asarray(grid_shape, dtype=np.int64)
+
+    tri_xy = triangles[:, :, :2]
+    min_xy = tri_xy.min(axis=1)
+    max_xy = tri_xy.max(axis=1)
+    min_z = triangles[:, :, 2].min(axis=1)
+    max_z = triangles[:, :, 2].mean(axis=1) + heights
+    min_idx = np.floor(
+        (np.column_stack((min_xy, min_z)) - origin) / voxel_size
+    ).astype(np.int64)
+    max_idx = np.ceil(
+        (np.column_stack((max_xy, max_z)) - origin) / voxel_size
+    ).astype(np.int64)
+    min_idx = np.maximum(min_idx, 0)
+    max_idx = np.minimum(max_idx, shape - 1)
+    dimensions = np.maximum(max_idx - min_idx + 1, 0)
+    costs = (
+        dimensions[:, 0].astype(np.float64)
+        * dimensions[:, 1].astype(np.float64)
+        * np.maximum(dimensions[:, 2], 1).astype(np.float64)
+    )
+    costs[heights <= 1e-8] = 0.0
+    costs[np.any(max_idx < min_idx, axis=1)] = 0.0
+
+    task_count = min(len(items), max(1, int(workers) * int(tasks_per_worker)))
+    buckets = [[] for _ in range(task_count)]
+    heap = [(0.0, index) for index in range(task_count)]
+    heapq.heapify(heap)
+    for item_index in np.argsort(-costs, kind="stable"):
+        current_cost, bucket_index = heapq.heappop(heap)
+        buckets[bucket_index].append(int(item_index))
+        heapq.heappush(heap, (current_cost + float(costs[item_index]), bucket_index))
+
+    payloads = []
+    for bucket in buckets:
+        if not bucket:
+            continue
+        indices = np.asarray(bucket, dtype=np.int64)
+        payloads.append((
+            triangles[indices],
+            heights[indices],
+            tuple(int(value) for value in grid_shape),
+            origin,
+            float(voxel_size),
+            int(max_xy_candidates),
+            int(max_emit_ids),
+            int(flush_ids),
+        ))
+    return payloads, {
+        "faces_seen": int(len(items)),
+        "estimated_cost": float(costs.sum()),
+        "task_count": len(payloads),
+        "estimated_cost_min": float(min((sum(costs[index] for index in bucket) for bucket in buckets), default=0.0)),
+        "estimated_cost_max": float(max((sum(costs[index] for index in bucket) for bucket in buckets), default=0.0)),
+    }
+
+
+def voxelize_faces_sparse(
+    mesh_filtered,
+    face_heights,
+    grid_shape,
+    origin,
+    voxel_size,
+    *,
+    workers=None,
+    diagnostics=None,
+):
+    """Vectorized, bounded parallel sparse voxelization.
+
+    XY containment is evaluated once per candidate center, valid Z layers are
+    generated as a contiguous range, and workers exchange compact uint64 IDs.
+    Set the ``GDS_VOXEL_ENGINE=legacy`` environment variable for rollback.
+    """
+    import time
+    from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+    from sparse_voxel_worker import voxelize_face_batch_worker
+
+    engine = os.environ.get("GDS_VOXEL_ENGINE", "parallel").strip().lower()
+    if engine == "legacy":
+        started = time.perf_counter()
+        result = voxelize_faces_sparse_legacy(
+            mesh_filtered, face_heights, grid_shape, origin, voxel_size
+        )
+        if diagnostics is not None:
+            diagnostics.update({
+                "engine": "legacy",
+                "parallel_wall_seconds": time.perf_counter() - started,
+                "active_voxel_count": len(result),
+            })
+        return result
+    if engine != "parallel":
+        raise ValueError(f"未知 GDS_VOXEL_ENGINE: {engine}")
+
+    workers = int(workers or os.environ.get("GDS_VOXEL_WORKERS", "15"))
+    tasks_per_worker = int(os.environ.get("GDS_VOXEL_TASKS_PER_WORKER", "8"))
+    max_xy_candidates = int(os.environ.get("GDS_VOXEL_MAX_XY_CANDIDATES", "250000"))
+    max_emit_ids = int(os.environ.get("GDS_VOXEL_MAX_EMIT_IDS", "2000000"))
+    flush_ids = int(os.environ.get("GDS_VOXEL_FLUSH_IDS", "4000000"))
+    if min(workers, tasks_per_worker, max_xy_candidates, max_emit_ids, flush_ids) <= 0:
+        raise ValueError("体素并行参数必须为正数")
+    cell_count = int(grid_shape[0]) * int(grid_shape[1]) * int(grid_shape[2])
+    if cell_count >= 2**64:
+        raise OverflowError("网格 cell 数超过 uint64 线性 ID 容量")
+
+    payloads, scheduling = _make_balanced_voxel_payloads(
+        mesh_filtered,
+        face_heights,
+        grid_shape,
+        origin,
+        voxel_size,
+        workers,
+        tasks_per_worker,
+        max_xy_candidates,
+        max_emit_ids,
+        flush_ids,
+    )
+    if not payloads:
+        if diagnostics is not None:
+            diagnostics.update({"engine": "parallel", **scheduling, "active_voxel_count": 0})
+        return []
+
+    started = time.perf_counter()
+    aggregate = {
+        "faces_seen": 0,
+        "faces_positive_height": 0,
+        "faces_degenerate": 0,
+        "candidate_xy_count": 0,
+        "inside_xy_count": 0,
+        "candidate_z_count": 0,
+        "valid_z_count": 0,
+        "emitted_ids_before_local_unique": 0,
+        "local_unique_ids": 0,
+        "contains_points_batches": 0,
+        "worker_compute_seconds_sum": 0.0,
+    }
+    runs = []
+    max_pending = max(1, workers * 2)
+    payload_iterator = iter(payloads)
+    pending = set()
+    completed = 0
+
+    def submit_next(executor):
+        try:
+            payload = next(payload_iterator)
+        except StopIteration:
+            return False
+        pending.add(executor.submit(voxelize_face_batch_worker, payload))
+        return True
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        for _ in range(min(max_pending, len(payloads))):
+            submit_next(executor)
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                ids, worker_diagnostics = future.result()
+                runs.append(ids)
+                completed += 1
+                for key in aggregate:
+                    if key == "worker_compute_seconds_sum":
+                        continue
+                    aggregate[key] += int(worker_diagnostics.get(key, 0))
+                aggregate["worker_compute_seconds_sum"] += float(
+                    worker_diagnostics.get("worker_compute_seconds", 0.0)
+                )
+                if len(runs) >= max_pending:
+                    runs = [_merge_unique_voxel_runs(runs)]
+                if completed % 10 == 0 or completed == len(payloads):
+                    print(f"voxel batches {completed}/{len(payloads)}", flush=True)
+                submit_next(executor)
+
+    merge_started = time.perf_counter()
+    active_ids = _merge_unique_voxel_runs(runs)
+    merge_seconds = time.perf_counter() - merge_started
+    coords = decode_voxel_ids(active_ids, grid_shape)
+    active_voxels = [tuple(int(value) for value in row) for row in coords]
+    wall_seconds = time.perf_counter() - started
+    if diagnostics is not None:
+        diagnostics.update({
+            "engine": "parallel_vectorized_columns_uint64",
+            "workers": workers,
+            "tasks_per_worker_target": tasks_per_worker,
+            "max_xy_candidates": max_xy_candidates,
+            "max_emit_ids": max_emit_ids,
+            "flush_ids": flush_ids,
+            "max_pending_tasks": max_pending,
+            **scheduling,
+            **aggregate,
+            "global_merge_seconds": merge_seconds,
+            "parallel_wall_seconds": wall_seconds,
+            "worker_utilization": aggregate["worker_compute_seconds_sum"] / max(
+                wall_seconds * workers, 1e-9
+            ),
+            "global_emitted_ids": int(aggregate["emitted_ids_before_local_unique"]),
+            "active_voxel_count": int(active_ids.size),
+            "duplicate_ratio": 1.0 - int(active_ids.size) / max(
+                int(aggregate["emitted_ids_before_local_unique"]), 1
+            ),
+        })
+    return active_voxels
 
 def get_voxel_grid_meta(mesh_filtered, voxel_size=0.05):
     bounds = mesh_filtered.bounds
