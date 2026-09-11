@@ -217,6 +217,127 @@ class ArcUtils:
         return path_found
 
     @staticmethod
+    def _increment_diagnostic(diagnostics, key, value=1):
+        if diagnostics is not None:
+            diagnostics[key] = diagnostics.get(key, 0) + value
+
+    @staticmethod
+    def _canonical_edge_key(p1, p2):
+        return (p1, p2) if p1 <= p2 else (p2, p1)
+
+    @staticmethod
+    def _build_fuzzy_edge_index(path_subset, tol_match):
+        """Build a bounded spatial index for legacy allclose ambiguity checks."""
+        coordinates = [
+            np.asarray(point, dtype=float)
+            for edge in path_subset
+            for point in edge[:2]
+        ]
+        max_abs_coordinate = max(
+            (float(np.max(np.abs(point))) for point in coordinates),
+            default=0.0,
+        )
+        cell_size = max(
+            float(tol_match) + 1e-5 * max_abs_coordinate,
+            np.finfo(float).eps,
+        )
+        spatial_index = {}
+        for edge_idx, edge in enumerate(path_subset):
+            for endpoint_idx in (0, 1):
+                point = np.asarray(edge[endpoint_idx], dtype=float)
+                cell = tuple(np.floor(point / cell_size).astype(np.int64))
+                spatial_index.setdefault(cell, []).append((edge_idx, endpoint_idx))
+        return spatial_index, cell_size
+
+    @staticmethod
+    def _fuzzy_candidate_edge_indices(point, path_subset, spatial_index, cell_size,
+                                      tol_match):
+        point = np.asarray(point, dtype=float)
+        cell = np.floor(point / cell_size).astype(np.int64)
+        candidate_indices = set()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    neighbor_cell = tuple(cell + np.array([dx, dy, dz], dtype=np.int64))
+                    for edge_idx, endpoint_idx in spatial_index.get(neighbor_cell, ()):
+                        endpoint = np.asarray(path_subset[edge_idx][endpoint_idx], dtype=float)
+                        if np.allclose(point, endpoint, atol=tol_match):
+                            candidate_indices.add(edge_idx)
+        return candidate_indices
+
+    @staticmethod
+    def order_nonclosed_path_with_edges(path_subset, plane_origin, radial_dir,
+                                        vertical_dir, diagnostics=None):
+        """Return the legacy BFS node path together with its source edge indices.
+
+        The graph construction and neighbor traversal intentionally use the same
+        dict/set operations as ``order_nonclosed_path``.  The additional maps only
+        retain the first source edge for each unordered node pair, matching the
+        legacy ``path_subset`` scan semantics for duplicate pairs.
+        """
+        graph = {}
+        edge_indices_by_key = {}
+        edge_index_by_key = {}
+        for edge_idx, edge in enumerate(path_subset):
+            p1, p2, _ = edge
+            graph.setdefault(p1, set())
+            graph.setdefault(p2, set())
+            graph[p1].add(p2)
+            graph[p2].add(p1)
+            key = ArcUtils._canonical_edge_key(p1, p2)
+            edge_indices_by_key.setdefault(key, []).append(edge_idx)
+            if key not in edge_index_by_key:
+                edge_index_by_key[key] = edge_idx
+
+        for key, edge_indices in edge_indices_by_key.items():
+            if len(edge_indices) > 1:
+                ArcUtils._increment_diagnostic(diagnostics, "duplicate_exact_edge_pairs")
+                face_ids = {path_subset[idx][2] for idx in edge_indices}
+                if len(face_ids) > 1:
+                    ArcUtils._increment_diagnostic(
+                        diagnostics, "duplicate_edge_pairs_different_face_ids"
+                    )
+
+        all_nodes = list(graph.keys())
+        nodes_arr = [np.array(n) for n in all_nodes]
+        nodes_2d = ArcUtils.project_to_plane(nodes_arr, plane_origin, radial_dir, vertical_dir)
+        y_values = [pt[1] for pt in nodes_2d]
+        start_node = all_nodes[y_values.index(max(y_values))]
+        end_node = all_nodes[y_values.index(min(y_values))]
+
+        from collections import deque
+        queue = deque([[start_node]])
+        visited = set([start_node])
+        parent_node = {}
+        parent_edge = {}
+        path_found = None
+        while queue:
+            path = queue.popleft()
+            current = path[-1]
+            if current == end_node:
+                path_found = path
+                break
+            for neighbor in graph[current]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    parent_node[neighbor] = current
+                    parent_edge[neighbor] = edge_index_by_key[
+                        ArcUtils._canonical_edge_key(current, neighbor)
+                    ]
+                    queue.append(path + [neighbor])
+        if path_found is None:
+            print("无法找到从y值最大到y值最小的路径")
+            return [], []
+
+        ordered_edge_indices = []
+        current = end_node
+        while current != start_node:
+            ordered_edge_indices.append(parent_edge[current])
+            current = parent_node[current]
+        ordered_edge_indices.reverse()
+        return path_found, ordered_edge_indices
+
+    @staticmethod
     def compute_normals_with_edges_for_subset(path_subset, closed, plane_origin, radial_dir, vertical_dir):
         result = []
         if not closed:
@@ -404,7 +525,9 @@ class ArcUtils:
         return edges_in_order
 
     @staticmethod
-    def get_ordered_red_segments_for_path(path_subset, plane_origin, radial_dir, vertical_dir, threshold=-0.1, tol_match=1e-6):
+    def get_ordered_red_segments_for_path_legacy(path_subset, plane_origin, radial_dir,
+                                                 vertical_dir, threshold=-0.1,
+                                                 tol_match=1e-6, diagnostics=None):
         ordered_nodes = ArcUtils.order_nonclosed_path(path_subset, plane_origin, radial_dir, vertical_dir)
         red_segments = []
         if len(ordered_nodes) < 2:
@@ -423,13 +546,71 @@ class ArcUtils:
             if normal_vec[1] < threshold:
                 mid_2d = (p1_2d + p2_2d) / 2.0
                 face_idx_found = None
+                ArcUtils._increment_diagnostic(diagnostics, "legacy_lookup_calls")
                 for edge in path_subset:
+                    ArcUtils._increment_diagnostic(diagnostics, "legacy_scanned_edges")
                     q1 = np.array(edge[0])
                     q2 = np.array(edge[1])
                     if (np.allclose(p1, q1, atol=tol_match) and np.allclose(p2, q2, atol=tol_match)) or \
                     (np.allclose(p1, q2, atol=tol_match) and np.allclose(p2, q1, atol=tol_match)):
                         face_idx_found = edge[2]
                         break
+                red_segments.append((p1_2d, p2_2d, mid_2d, normal_vec, p1, p2, face_idx_found))
+        return red_segments
+
+    @staticmethod
+    def get_ordered_red_segments_for_path(path_subset, plane_origin, radial_dir,
+                                          vertical_dir, threshold=-0.1,
+                                          tol_match=1e-6, diagnostics=None):
+        """Return red segments while carrying source edge identity through BFS."""
+        ordered_nodes, ordered_edge_indices = ArcUtils.order_nonclosed_path_with_edges(
+            path_subset, plane_origin, radial_dir, vertical_dir, diagnostics=diagnostics
+        )
+        red_segments = []
+        if len(ordered_nodes) < 2:
+            return red_segments
+
+        fuzzy_index = None
+        for i in range(len(ordered_nodes) - 1):
+            p1 = np.array(ordered_nodes[i])
+            p2 = np.array(ordered_nodes[i + 1])
+            p1_2d = ArcUtils.project_to_plane([p1], plane_origin, radial_dir, vertical_dir)[0]
+            p2_2d = ArcUtils.project_to_plane([p2], plane_origin, radial_dir, vertical_dir)[0]
+            direction = p2_2d - p1_2d
+            norm_val = np.linalg.norm(direction)
+            if norm_val == 0:
+                continue
+            direction /= norm_val
+            normal_vec = np.array([-direction[1], direction[0]])
+            if normal_vec[1] < threshold:
+                mid_2d = (p1_2d + p2_2d) / 2.0
+                edge_idx = ordered_edge_indices[i]
+                if fuzzy_index is None:
+                    fuzzy_index = ArcUtils._build_fuzzy_edge_index(path_subset, tol_match)
+                spatial_index, cell_size = fuzzy_index
+                candidate_indices = ArcUtils._fuzzy_candidate_edge_indices(
+                    p1, path_subset, spatial_index, cell_size, tol_match
+                )
+                matching_candidate_indices = []
+                candidate_checks = 0
+                for candidate_idx in sorted(candidate_indices):
+                    if candidate_idx > edge_idx:
+                        break
+                    candidate_checks += 1
+                    candidate = path_subset[candidate_idx]
+                    q1 = np.asarray(candidate[0])
+                    q2 = np.asarray(candidate[1])
+                    if (np.allclose(p1, q1, atol=tol_match) and np.allclose(p2, q2, atol=tol_match)) or \
+                    (np.allclose(p1, q2, atol=tol_match) and np.allclose(p2, q1, atol=tol_match)):
+                        matching_candidate_indices.append(candidate_idx)
+                if not matching_candidate_indices or matching_candidate_indices[0] >= edge_idx:
+                    face_idx_found = path_subset[edge_idx][2]
+                    ArcUtils._increment_diagnostic(diagnostics, "fast_direct_face_hits")
+                else:
+                    ArcUtils._increment_diagnostic(diagnostics, "ambiguous_edge_count")
+                    ArcUtils._increment_diagnostic(diagnostics, "fallback_lookup_calls")
+                    ArcUtils._increment_diagnostic(diagnostics, "fallback_scanned_edges", candidate_checks)
+                    face_idx_found = path_subset[matching_candidate_indices[0]][2]
                 red_segments.append((p1_2d, p2_2d, mid_2d, normal_vec, p1, p2, face_idx_found))
         return red_segments
 
@@ -592,9 +773,10 @@ class ArcUtils:
 # 2. 核心剖面切割器
 # =============================================================================
 class ArcSlicer:
-    def __init__(self, res, use_merged_paths=False):
+    def __init__(self, res, use_merged_paths=False, red_segment_fn=None):
         self.results = res
         self.use_merged_paths = use_merged_paths
+        self.red_segment_fn = red_segment_fn or ArcUtils.get_ordered_red_segments_for_path
 
     def load_data(self):
         lines_3d = self.results["slicing"]["lines_3d"]
@@ -654,7 +836,7 @@ class ArcSlicer:
             closed = ArcUtils.is_closed_subset(subset, self.results["nodes"]["node_connectivity"])
             if closed:
                 continue
-            ordered_red = ArcUtils.get_ordered_red_segments_for_path(subset, origin, radial_dir, vertical_dir, threshold=-0.1)
+            ordered_red = self.red_segment_fn(subset, origin, radial_dir, vertical_dir, threshold=-0.1)
             if ordered_red:
                 groups = ArcUtils.group_red_segments_by_connection_order(ordered_red, tol=-0.3, y_tol=1)
                 red_groups[idx] = groups
@@ -699,11 +881,27 @@ class ArcSlicer:
 # 多剖面处理及结果保存（主函数）
 # =============================================================================
 
-def process_single_slice(res):
-    slicer = ArcSlicer(res, use_merged_paths=False)
+def _process_single_slice_with_red_segment_fn(res, red_segment_fn):
+    slicer = ArcSlicer(res, use_merged_paths=False, red_segment_fn=red_segment_fn)
     results = slicer.run_all()
     results = ArcUtils.compute_2d_centroids(results)
     return results
+
+
+def process_single_slice_legacy(res):
+    return _process_single_slice_with_red_segment_fn(
+        res, ArcUtils.get_ordered_red_segments_for_path_legacy
+    )
+
+
+def process_single_slice_fast(res):
+    return _process_single_slice_with_red_segment_fn(
+        res, ArcUtils.get_ordered_red_segments_for_path
+    )
+
+
+def process_single_slice(res):
+    return process_single_slice_fast(res)
 
 def convert_to_line_segments_format(processed_batch):
     all_line_segments_data = []
