@@ -299,7 +299,7 @@ def main():
 
     # 后台配置（请根据实际情况修改文件路径）
     config_path = str(get_path("arc_config"))
-    mesh_path = r"E:\Production_1 (2)\Data\combined_model.glb"
+    mesh_path = str(get_path("mesh_model"))
     show_arrows = True  # 修改为False则不显示箭头
 
     # 加载配置、网格与裁剪

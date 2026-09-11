@@ -184,13 +184,40 @@ class ArcUtils:
 
     @staticmethod
     def order_nonclosed_path(path_subset, plane_origin, radial_dir, vertical_dir):
+        ordered_nodes, _ = ArcUtils._order_nonclosed_path_core(
+            path_subset, plane_origin, radial_dir, vertical_dir,
+            return_edge_indices=False,
+        )
+        return ordered_nodes
+
+    @staticmethod
+    def _order_nonclosed_path_core(path_subset, plane_origin, radial_dir,
+                                   vertical_dir, *, return_edge_indices=False,
+                                   diagnostics=None):
         graph = {}
+        edge_indices_by_key = {}
+        edge_index_by_key = {}
         for edge in path_subset:
             p1, p2, _ = edge
             graph.setdefault(p1, set())
             graph.setdefault(p2, set())
             graph[p1].add(p2)
             graph[p2].add(p1)
+        if return_edge_indices or diagnostics is not None:
+            for edge_idx, edge in enumerate(path_subset):
+                p1, p2, _ = edge
+                key = ArcUtils._canonical_edge_key(p1, p2)
+                edge_indices_by_key.setdefault(key, []).append(edge_idx)
+                if key not in edge_index_by_key:
+                    edge_index_by_key[key] = edge_idx
+            for key, edge_indices in edge_indices_by_key.items():
+                if len(edge_indices) > 1:
+                    ArcUtils._increment_diagnostic(diagnostics, "duplicate_exact_edge_pairs")
+                    face_ids = {path_subset[idx][2] for idx in edge_indices}
+                    if len(face_ids) > 1:
+                        ArcUtils._increment_diagnostic(
+                            diagnostics, "duplicate_edge_pairs_different_face_ids"
+                        )
         all_nodes = list(graph.keys())
         nodes_arr = [np.array(n) for n in all_nodes]
         nodes_2d = ArcUtils.project_to_plane(nodes_arr, plane_origin, radial_dir, vertical_dir)
@@ -200,6 +227,8 @@ class ArcUtils:
         from collections import deque
         queue = deque([[start_node]])
         visited = set([start_node])
+        parent_node = {}
+        parent_edge = {}
         path_found = None
         while queue:
             path = queue.popleft()
@@ -210,11 +239,26 @@ class ArcUtils:
             for neighbor in graph[current]:
                 if neighbor not in visited:
                     visited.add(neighbor)
+                    if return_edge_indices:
+                        parent_node[neighbor] = current
+                        parent_edge[neighbor] = edge_index_by_key[
+                            ArcUtils._canonical_edge_key(current, neighbor)
+                        ]
                     queue.append(path + [neighbor])
         if path_found is None:
             print("无法找到从y值最大到y值最小的路径")
-            return []
-        return path_found
+            return [], [] if return_edge_indices else None
+
+        if not return_edge_indices:
+            return path_found, None
+
+        ordered_edge_indices = []
+        current = end_node
+        while current != start_node:
+            ordered_edge_indices.append(parent_edge[current])
+            current = parent_node[current]
+        ordered_edge_indices.reverse()
+        return path_found, ordered_edge_indices
 
     @staticmethod
     def _increment_diagnostic(diagnostics, key, value=1):
@@ -268,74 +312,10 @@ class ArcUtils:
     @staticmethod
     def order_nonclosed_path_with_edges(path_subset, plane_origin, radial_dir,
                                         vertical_dir, diagnostics=None):
-        """Return the legacy BFS node path together with its source edge indices.
-
-        The graph construction and neighbor traversal intentionally use the same
-        dict/set operations as ``order_nonclosed_path``.  The additional maps only
-        retain the first source edge for each unordered node pair, matching the
-        legacy ``path_subset`` scan semantics for duplicate pairs.
-        """
-        graph = {}
-        edge_indices_by_key = {}
-        edge_index_by_key = {}
-        for edge_idx, edge in enumerate(path_subset):
-            p1, p2, _ = edge
-            graph.setdefault(p1, set())
-            graph.setdefault(p2, set())
-            graph[p1].add(p2)
-            graph[p2].add(p1)
-            key = ArcUtils._canonical_edge_key(p1, p2)
-            edge_indices_by_key.setdefault(key, []).append(edge_idx)
-            if key not in edge_index_by_key:
-                edge_index_by_key[key] = edge_idx
-
-        for key, edge_indices in edge_indices_by_key.items():
-            if len(edge_indices) > 1:
-                ArcUtils._increment_diagnostic(diagnostics, "duplicate_exact_edge_pairs")
-                face_ids = {path_subset[idx][2] for idx in edge_indices}
-                if len(face_ids) > 1:
-                    ArcUtils._increment_diagnostic(
-                        diagnostics, "duplicate_edge_pairs_different_face_ids"
-                    )
-
-        all_nodes = list(graph.keys())
-        nodes_arr = [np.array(n) for n in all_nodes]
-        nodes_2d = ArcUtils.project_to_plane(nodes_arr, plane_origin, radial_dir, vertical_dir)
-        y_values = [pt[1] for pt in nodes_2d]
-        start_node = all_nodes[y_values.index(max(y_values))]
-        end_node = all_nodes[y_values.index(min(y_values))]
-
-        from collections import deque
-        queue = deque([[start_node]])
-        visited = set([start_node])
-        parent_node = {}
-        parent_edge = {}
-        path_found = None
-        while queue:
-            path = queue.popleft()
-            current = path[-1]
-            if current == end_node:
-                path_found = path
-                break
-            for neighbor in graph[current]:
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    parent_node[neighbor] = current
-                    parent_edge[neighbor] = edge_index_by_key[
-                        ArcUtils._canonical_edge_key(current, neighbor)
-                    ]
-                    queue.append(path + [neighbor])
-        if path_found is None:
-            print("无法找到从y值最大到y值最小的路径")
-            return [], []
-
-        ordered_edge_indices = []
-        current = end_node
-        while current != start_node:
-            ordered_edge_indices.append(parent_edge[current])
-            current = parent_node[current]
-        ordered_edge_indices.reverse()
-        return path_found, ordered_edge_indices
+        return ArcUtils._order_nonclosed_path_core(
+            path_subset, plane_origin, radial_dir, vertical_dir,
+            return_edge_indices=True, diagnostics=diagnostics,
+        )
 
     @staticmethod
     def compute_normals_with_edges_for_subset(path_subset, closed, plane_origin, radial_dir, vertical_dir):
