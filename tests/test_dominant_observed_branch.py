@@ -33,7 +33,7 @@ class DominantBranchTests(unittest.TestCase):
         result = solve_dominant_branch(profile, uz, window())
         self.assertEqual(result['branch_switch_count'], 0)
         self.assertEqual(result['inferred_length_m'], 0.)
-        np.testing.assert_array_equal(result['curve_uz'], np.array(paths[0])[1:-1])
+        np.testing.assert_array_equal(result['curve_uz'], np.array(paths[0]))
         np.testing.assert_array_equal(before, profile.nodes)
         self.assertFalse(result['original_endpoint_pair_connected'])
         self.assertEqual(result['observed_geometry_fraction'], 1.)
@@ -60,14 +60,22 @@ class DominantBranchTests(unittest.TestCase):
         for s in (.90, .95, 1.05, 1.10):
             n = p.copy(); n[:, 0] += (s-1)*.01
             _, _, nb = fixture([n]); neighbors.append({'s': s, 'branches': nb})
-        selected = select_dominant_branch(branches, window(), neighbors)
+        from horizontal_surface_link import horizontal_path_observations
+        from observed_surface_graph import build_surface_graph
+        positions = [.90, .95, 1., 1.05, 1.10]
+        horizontal = [dict(z=float(z), paths=[dict(h_path_id=0,
+                      points_su=[[s, float(np.interp(z, p[:, 1], p[:, 0])+(s-1)*.01)] for s in positions])])
+                      for z in zs[1:-1]]
+        graph = build_surface_graph(neighbors+[dict(s=1., branches=branches)],
+                                    horizontal_path_observations(horizontal, positions), slice_order=positions)
+        selected = select_dominant_branch(branches, window(), neighbors, surface_graph=graph)
         self.assertEqual(selected['selected']['branch_id'], 0)
-        self.assertEqual(selected['selected']['neighbor_detail_repeat_count'], 4)
+        self.assertEqual(selected['selected']['neighbor_detail_repeat_count'], 2)
 
     def test_absent_observation_delegates_without_hidden_truth(self):
         profile = canonicalize_vertical(np.empty((0, 2, 3)), [])
         result = solve_dominant_branch(profile, np.empty((0, 2)), window())
-        self.assertEqual(result['status'], 'NEEDS_GAP_INFERENCE')
+        self.assertEqual(result['status'], 'UNRESOLVED_SURFACE_IDENTITY')
         self.assertEqual(len(result['curve_uz']), 0)
 
     def test_closed_loop_is_separate_not_an_open_dominant(self):

@@ -33,7 +33,16 @@ def _angle(a, b):
     return float(np.degrees(np.arccos(np.clip(np.dot(a, b)/divisor, -1, 1)))) if divisor > 1e-14 else None
 
 
-def search_backtracking_junction(a, b, *, maximum_distance=.01, backtrack_length=.2):
+def _interval_bounds(a, b, interval):
+    if interval is None:
+        return 0., 1.
+    if abs(b[1]-a[1]) <= 1e-12:
+        return (0., 1.) if interval[0] <= a[1] <= interval[1] else (1., 0.)
+    lo, hi = sorted((z-a[1])/(b[1]-a[1]) for z in interval)
+    return max(0., lo), min(1., hi)
+
+
+def search_backtracking_junction(a, b, *, maximum_distance=.01, backtrack_length=.2, transition_interval=None):
     """Search last/first arc-length windows, not just endpoint-to-endpoint.
 
     The distance bound is a proposal gate, NOT a tolerance for merging nodes.
@@ -46,19 +55,34 @@ def search_backtracking_junction(a, b, *, maximum_distance=.01, backtrack_length
     la, lb = np.linalg.norm(np.diff(pa, axis=0), axis=1), np.linalg.norm(np.diff(pb, axis=0), axis=1)
     ca, cb = np.r_[0., np.cumsum(la)], np.r_[0., np.cumsum(lb)]
     candidates, seen = [], set()
+    if transition_interval is not None:
+        # Search the measured confidence transition, not old endpoints or
+        # a last-edge window. Filter both on-edge points before ranking.
+        backtrack_length = max(float(ca[-1]), float(cb[-1]))+1e-9
     for i in np.flatnonzero((ca[-1]-ca[:-1] <= backtrack_length+la+1e-12) & (la > 1e-12)):
         amin = max(0., (ca[-1]-backtrack_length-ca[i])/la[i])
-        aa, ab = pa[i]+amin*(pa[i+1]-pa[i]), pa[i+1]
+        alo, amax = _interval_bounds(pa[i], pa[i+1], transition_interval)
+        amin = max(amin, alo)
+        if amin > amax:
+            continue
+        aa, ab = pa[i]+amin*(pa[i+1]-pa[i]), pa[i]+amax*(pa[i+1]-pa[i])
         for j in np.flatnonzero((cb[:-1] <= backtrack_length+1e-12) & (lb > 1e-12)):
             bmax = min(1., (backtrack_length-cb[j])/lb[j])
-            ba, bb = pb[j], pb[j]+bmax*(pb[j+1]-pb[j])
+            bmin, bhi = _interval_bounds(pb[j], pb[j+1], transition_interval)
+            bmax = min(bmax, bhi)
+            if bmin > bmax:
+                continue
+            ba, bb = pb[j]+bmin*(pb[j+1]-pb[j]), pb[j]+bmax*(pb[j+1]-pb[j])
             gap_box = np.maximum(0., np.maximum(np.minimum(aa, ab)-np.maximum(ba, bb),
                                                  np.minimum(ba, bb)-np.maximum(aa, ab)))
             if np.linalg.norm(gap_box) > maximum_distance:
                 continue
             for ta, tb in _segment_candidates(aa, ab, ba, bb):
-                ta, tb = amin+(1-amin)*ta, bmax*tb
+                ta, tb = amin+(amax-amin)*ta, bmin+(bmax-bmin)*tb
                 qa, qb = pa[i]+ta*(pa[i+1]-pa[i]), pb[j]+tb*(pb[j+1]-pb[j])
+                if transition_interval is not None and not all(
+                        transition_interval[0]-1e-9 <= p[1] <= transition_interval[1]+1e-9 for p in (qa, qb)):
+                    continue
                 distance = float(np.linalg.norm(qa-qb))
                 if distance > maximum_distance+1e-12:
                     continue
@@ -88,7 +112,7 @@ def search_backtracking_junction(a, b, *, maximum_distance=.01, backtrack_length
                   'EDGE_INTERIOR_PROJECTION': 2, 'ENDPOINT_CONNECTOR': 3}
     candidates.sort(key=lambda c: (priorities[c['junction_type']], c['distance_m'],
                     c['tangent_turn_deg'] if c['tangent_turn_deg'] is not None else 180., c['A_backtrack_length_m']))
-    return candidates[:8]
+    return candidates if transition_interval is not None else candidates[:8]
 
 
 def build_switch_route(a, b, junction, *, dominant_branch_id=None):

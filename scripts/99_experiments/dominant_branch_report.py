@@ -66,7 +66,7 @@ def render_case(data, row, output):
                      ls='-' if observed or edge['source'] == 'TOPOLOGY_SWITCH' else '--', zorder=4)
     for layer in data['windows'][cid]['layers']:
         hits = [h['u'] for h in layer['horizontal']]
-        axes[1].scatter(hits, [layer['z']]*len(hits), c='#218954', marker='x', s=24, zorder=6)
+        axes[1].scatter(hits, [layer['z']]*len(hits), c='#8dcda4', marker='x', s=24, zorder=6)
     junction = result['junction']
     if junction:
         pp = np.array([junction['a_point_uz'], junction['b_point_uz']])
@@ -81,7 +81,7 @@ def render_case(data, row, output):
               Line2D([], [], color='#a4aab1', label='Secondary observed branch'),
               Line2D([], [], color='#d3a413', label='Topology connector'),
               Line2D([], [], color='#d12e43', ls='--', label='Inferred geometry'),
-              Line2D([], [], color='#218954', marker='x', ls='', label='Real horizontal support'),
+              Line2D([], [], color='#8dcda4', marker='x', ls='', label='Raw H observations (legacy)'),
               Line2D([], [], color='#8846bb', marker='o', ls='', label='Virtual junction')]
     fig.legend(handles=legend, loc='lower center', ncol=3, frameon=False, bbox_to_anchor=(.5, .01))
     fig.subplots_adjust(left=.10, right=.98, top=.84, bottom=.18, wspace=.13)
@@ -196,7 +196,7 @@ def finish(output):
     with (previous_path/'representative_figures.csv').open(encoding='utf-8-sig', newline='') as stream:
         representative_rows = list(csv.DictReader(stream))
     figures, review = [], ['# 代表案例审核', '', '沿用上一轮29个案例：A/B/C/D/F各5个，E全部4个。图中几何来自本轮输出，黑点为旧候选端点。', '',
-                          '粗蓝线是保留的主导纵向观测；灰线是其他候选；绿叉为真实横向支持；黄线为connector；紫点为virtual junction；红虚线只表示推断。', '']
+                          '粗蓝线是保留的主导纵向观测；灰线是其他候选；浅绿叉为原始横向观测（legacy，未证明同曲面）；黄线为connector；紫点为virtual junction；红虚线只表示推断。', '']
     with StageSampler('representative_figures_and_report', output, stages):
         for old in representative_rows:
             row = row_map[old['candidate_id']]

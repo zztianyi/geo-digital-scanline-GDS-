@@ -10,7 +10,7 @@ class BoundaryAssociationTests(unittest.TestCase):
         points = np.array([[0, 0], [-.4, .4], [-.7, .55], [-.6, .45], [-.4, .7], [.01, 1]])
         profile, uz, _ = fixture([points])
         result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'PRESERVED_COMPLETE_OBSERVED')
+        self.assertEqual(result['status'], 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK')
         np.testing.assert_array_equal(result['curve_uz'], points)
         self.assertEqual(result['inferred_length_m'], 0.)
         self.assertEqual(result['branch_switch_count'], 0)

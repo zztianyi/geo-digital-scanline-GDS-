@@ -9,20 +9,20 @@ from test_dominant_recognition_adapter import load_recognition_kernel
 
 
 class ReviewFixTests(unittest.TestCase):
-    def test_complete_alternative_precedes_folded_extrema_only_coverage(self):
+    def test_complete_alternative_cannot_override_full_folded_branch(self):
         profile, uz, branches = fixture([[[.02, .2], [.025, 0], [.03, 1], [.02, .8]],
                                          np.column_stack((np.zeros(21), np.linspace(0, 1, 21)))])
         self.assertEqual(select_dominant_branch(branches, window())['selected']['branch_id'], 0)
         result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'PRESERVED_COMPLETE_OBSERVED')
-        self.assertEqual(result['selection']['selected']['branch_id'], 1)
+        self.assertEqual(result['status'], 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK')
+        self.assertEqual(result['selection']['selected']['branch_id'], 0)
         self.assertEqual(result['branch_switch_count'], 0)
 
     def test_route_cannot_omit_its_reported_dominant_identity(self):
         profile, uz, _ = fixture([[[.04, .05], [.04, .95]], [[0, 0], [0, .55]],
                                   [[.005, .45], [.005, 1]]])
         result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'PRESERVED_PARTIAL_UNRESOLVED')
+        self.assertEqual(result['status'], 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK')
         self.assertEqual(result['selection']['selected']['branch_id'], 0)
         self.assertEqual(result['branch_switch_count'], 0)
 
