@@ -753,10 +753,12 @@ class ArcUtils:
 # 2. 核心剖面切割器
 # =============================================================================
 class ArcSlicer:
-    def __init__(self, res, use_merged_paths=False, red_segment_fn=None):
+    def __init__(self, res, use_merged_paths=False, red_segment_fn=None,
+                 preserve_closed_components=False):
         self.results = res
         self.use_merged_paths = use_merged_paths
         self.red_segment_fn = red_segment_fn or ArcUtils.get_ordered_red_segments_for_path
+        self.preserve_closed_components = preserve_closed_components
 
     def load_data(self):
         lines_3d = self.results["slicing"]["lines_3d"]
@@ -807,6 +809,18 @@ class ArcSlicer:
         origin = self.results["plane_params"]["origin"]
         radial_dir = self.results["plane_params"]["radial_dir"]
         vertical_dir = self.results["plane_params"]["vertical_dir"]
+        if self.preserve_closed_components:
+            # Closed sections are a separate geometry product, not an open
+            # red-group with an invented vertical closure segment.
+            from vertical_profile_canonicalization import canonicalize_vertical
+            from closed_component_tracking import analyze_closed_components
+            intersections = self.results["slicing"]["intersections"]
+            lines = np.asarray([[row[0], row[1]] for row in intersections]).reshape(-1, 2, 3)
+            profile = canonicalize_vertical(lines, [row[2] for row in intersections])
+            projected = np.asarray(ArcUtils.project_to_plane(profile.nodes, origin, radial_dir, vertical_dir)).reshape(-1, 2)
+            key = self.results.get("slice_key", "0.00")
+            self.results["closed_components"] = analyze_closed_components(
+                profile, projected, slice_key=str(key), s=float(key))
         if self.use_merged_paths:
             path_subsets = self.results["paths"]["merged_open_subsets"]
         else:
