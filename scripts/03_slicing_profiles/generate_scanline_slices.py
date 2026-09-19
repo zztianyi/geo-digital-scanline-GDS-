@@ -88,7 +88,16 @@ def slice_and_check_faces(mesh, origin, normal):
 
 
 
-def main():
+def main(workers=4):
+    import os
+    from tempfile import TemporaryDirectory
+    from parallel_slice_engine import ParallelSliceEngine, prepare_mesh
+
+    # Spawned workers inherit these limits before importing NumPy. Four workers
+    # are the lower-memory near-tie in the real 1/4/8/12 sweep; CLI can override.
+    for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ[name] = "1"
+
     config_path = str(get_path("arc_config"))
     mesh_path = str(get_path("mesh_model")) 
     # mesh_path = str(get_path("segmented_mesh"))
@@ -96,41 +105,32 @@ def main():
     mesh_path = str(get_path("segmented_mesh"))
     
     # 加载配置
-    center, radius, angle_min, angle_max, arc_length_range, z_min, z_max = load_arc_config(config_path)
+    with open(config_path, 'r') as f:
+        arc_config = json.load(f)
     
     # 切剖面位置序列
     slice_positions = np.arange(59.45, 72.65, 0.05)
 
-    # 加载并过滤网格
-    mesh = trimesh.load_mesh(mesh_path)
-    mesh_filtered = filter_mesh_by_z_range(mesh, z_min, z_max)
-
     # 存储所有切剖面数据
     slices_data = {}
 
-    for pos in slice_positions:
-        plane_params = compute_slice_plane(center, radius, angle_min, arc_length_range, pos)
-        origin = plane_params["origin"]
-        normal = plane_params["normal"]
-        
-
-        # 使用带面索引的切割函数
-        lines_3d, face_ids_1d = slice_and_check_faces(mesh_filtered, origin, normal)
-
-        # 保存为字符串键，同时单独保存方位角
-        key = f"{pos:.2f}"
-        slices_data[key] = {
-            "plane_params": plane_params,
-            "slicing": {
-                "lines_3d": lines_3d,
-                "face_ids": face_ids_1d
-            }
-        }
-
-        print(f"切剖面位置 {key}（弧长坐标），方位角 {plane_params['azimuth']}°，线段数量 {len(lines_3d)}")
-
-    # 清理内存
-    del mesh, mesh_filtered
+    with TemporaryDirectory(prefix="gds-slices-") as temporary_dir:
+        metadata = prepare_mesh(mesh_path, config_path, _GDSPath(temporary_dir) / "mesh_cache")
+        specs = ({"axis": "vertical", "position": float(pos)} for pos in slice_positions)
+        with ParallelSliceEngine(metadata["cache_dir"], arc_config, workers=workers) as engine:
+            for result in engine.iter_slices(specs):
+                plane_params = result["plane_params"]
+                lines_3d = result["lines_3d"]
+                key = f"{result['position']:.2f}"
+                slices_data[key] = {
+                    "plane_params": plane_params,
+                    "slicing": {
+                        "lines_3d": lines_3d,
+                        "face_ids": result["face_ids"]
+                    }
+                }
+                print(f"切剖面位置 {key}（弧长坐标），方位角 {plane_params['azimuth']}°，线段数量 {len(lines_3d)}")
+    slices_data = {f"{pos:.2f}": slices_data[f"{pos:.2f}"] for pos in slice_positions}
 
     # 保存数据
     output_path = str(get_path("slice_output", create_parent=True))
@@ -140,4 +140,10 @@ def main():
     print("全部切剖面数据已保存到", output_path)
     
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workers", type=int, default=4, help="Persistent slicing workers (default: 4)")
+    args = parser.parse_args()
+    if args.workers < 1 or args.workers > 61:
+        parser.error("--workers must be between 1 and 61")
+    main(workers=args.workers)

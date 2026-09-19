@@ -1,0 +1,1011 @@
+{
+  "analysis_date": "2026-09-11",
+  "repository": "https://github.com/zztianyi/geo-digital-scanline-GDS-.git",
+  "local_commit": "7a88944abc155c7cadeb3cf73433da8eb5e48385",
+  "scope": "既有记录的离线分析，未重跑算法",
+  "runs": [
+    {
+      "run_id": "20260910_234816_105072_recognition",
+      "label": "A：6进程未完成",
+      "manifest": {
+        "created_at": "2026-09-10T23:48:16.105072+08:00",
+        "scope": "recognition_only_from_existing_slices",
+        "config": {
+          "recognition_input": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260905_201827_352768\\slices.pkl",
+          "mesh": null,
+          "arc_config": null,
+          "output_root": "D:\\project_python\\rock_recognize\\outputs\\benchmarks",
+          "slice_start": 0.0,
+          "slice_stop": 140.0,
+          "slice_step": 0.05,
+          "voxel_size": 0.05,
+          "workers": 6,
+          "block_size": 10,
+          "expected_slices": 2800,
+          "profile_functions": true,
+          "seed": 42,
+          "min_available_gib": 1.5,
+          "stage_timeout_seconds": 0,
+          "sample_slices": 0,
+          "sample_voxel_faces": 120,
+          "reference_line_faces": null,
+          "reference_voxels": null,
+          "requested_workers": 15
+        },
+        "platform": {
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.12.2 (tags/v3.12.2:6abddd9, Feb  6 2024, 21:26:36) [MSC v.1937 64 bit (AMD64)]",
+          "python_executable": "C:\\Users\\222\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+          "physical_cores": 20,
+          "logical_cpus": 28,
+          "total_ram_bytes": 34053414912,
+          "available_ram_before_bytes": 16423854080,
+          "gpu_compute_used": false,
+          "packages": {
+            "numpy": "1.26.4",
+            "scipy": "1.13.0",
+            "trimesh": "4.3.2",
+            "scikit-learn": "1.4.2",
+            "psutil": "6.0.0",
+            "shapely": "2.1.2",
+            "matplotlib": "3.8.4"
+          },
+          "cpu_name": "Intel(R) Core(TM) i7-14700HX"
+        },
+        "commit_before": {
+          "used_bytes": 28972019712,
+          "limit_bytes": 46401445888,
+          "available_bytes": 17429426176
+        },
+        "input_sha256": {
+          "slices": "734dc4a73772f1c9c61ef589a876520ee0c657d0b95f2a2f61825c3a2b3b8464"
+        },
+        "source_sha256": {
+          "recognition": "d1b25f5670c21197249877e0890677d1ee1fe636d425a0dcafc268d417fe5d82"
+        },
+        "runner_sha256": "7a7c41df28ff10ccf318f175e4934e67384cb37581d9a715cdc3ca12e34b39fb",
+        "scheduler_sha256": "bbcb7c2fc9f4080a5f981c576aeb705340a4abe1c6768b312ccc123588fe7cdb",
+        "monitor_sha256": "119a5c30b49a091c756b25fe1c60b09737505a5c3e4626e194e4fbfbc8283e49"
+      },
+      "measurement": null,
+      "completed_tasks": 93,
+      "completed_profiles": 930,
+      "position_min_m": 0.0,
+      "position_max_m": 46.45,
+      "function_totals": {
+        "ArcSlicer.load_data": {
+          "calls": 930.0,
+          "inclusive_seconds": 0.6287569998239633,
+          "exclusive_seconds": 0.6287569998239633,
+          "process_cpu_seconds_inclusive": 0.625
+        },
+        "ArcSlicer.extract_nodes": {
+          "calls": 930.0,
+          "inclusive_seconds": 12.79804490035167,
+          "exclusive_seconds": 12.79804490035167,
+          "process_cpu_seconds_inclusive": 12.6875
+        },
+        "ArcUtils.split_segments_to_paths": {
+          "calls": 930.0,
+          "inclusive_seconds": 13.8425230004068,
+          "exclusive_seconds": 13.8425230004068,
+          "process_cpu_seconds_inclusive": 13.609375
+        },
+        "ArcSlicer.segment_paths": {
+          "calls": 930.0,
+          "inclusive_seconds": 13.857874599227216,
+          "exclusive_seconds": 0.015351598820416257,
+          "process_cpu_seconds_inclusive": 13.625
+        },
+        "ArcUtils.order_nonclosed_path": {
+          "calls": 21038.0,
+          "inclusive_seconds": 87.81228140243911,
+          "exclusive_seconds": 87.81228140243911,
+          "process_cpu_seconds_inclusive": 86.28125
+        },
+        "ArcUtils.compute_normals_with_edges_for_subset": {
+          "calls": 4191.0,
+          "inclusive_seconds": 27.37339589878684,
+          "exclusive_seconds": 19.30968159803888,
+          "process_cpu_seconds_inclusive": 27.328125
+        },
+        "ArcSlicer.compute_normals": {
+          "calls": 930.0,
+          "inclusive_seconds": 27.854629699751968,
+          "exclusive_seconds": 0.48123380096512847,
+          "process_cpu_seconds_inclusive": 27.765625
+        },
+        "ArcUtils.get_ordered_red_segments_for_path": {
+          "calls": 2883.0,
+          "inclusive_seconds": 4050.382157600485,
+          "exclusive_seconds": 4042.2822791008803,
+          "process_cpu_seconds_inclusive": 4003.796875
+        },
+        "ArcUtils.group_red_segments_by_connection_order": {
+          "calls": 2632.0,
+          "inclusive_seconds": 0.6365761997876689,
+          "exclusive_seconds": 0.6365761997876689,
+          "process_cpu_seconds_inclusive": 0.5625
+        },
+        "ArcSlicer.extract_and_group_red_segments": {
+          "calls": 930.0,
+          "inclusive_seconds": 4051.6295309005654,
+          "exclusive_seconds": 0.6107971002929844,
+          "process_cpu_seconds_inclusive": 4004.984375
+        },
+        "ArcUtils.correct_group_for_segments": {
+          "calls": 15272.0,
+          "inclusive_seconds": 164.25733039862826,
+          "exclusive_seconds": 92.60864179654163,
+          "process_cpu_seconds_inclusive": 162.203125
+        },
+        "ArcSlicer.correct_red_groups": {
+          "calls": 930.0,
+          "inclusive_seconds": 164.38253200042527,
+          "exclusive_seconds": 0.12520160179701634,
+          "process_cpu_seconds_inclusive": 162.328125
+        },
+        "ArcUtils.compute_2d_centroids": {
+          "calls": 930.0,
+          "inclusive_seconds": 0.7267123997444287,
+          "exclusive_seconds": 0.7267123997444287,
+          "process_cpu_seconds_inclusive": 0.78125
+        },
+        "process_single_slice": {
+          "calls": 930.0,
+          "inclusive_seconds": 4271.918820099963,
+          "exclusive_seconds": 0.04073860007338226,
+          "process_cpu_seconds_inclusive": 4222.796875
+        }
+      },
+      "stages": [
+        {
+          "stage": "输入整理",
+          "function": "ArcSlicer.load_data",
+          "wall_seconds": 0.6287569998239633,
+          "wall_percent": 0.014718374255277873,
+          "cpu_seconds": 0.625,
+          "cpu_percent": 0.014800617185736645
+        },
+        {
+          "stage": "节点提取",
+          "function": "ArcSlicer.extract_nodes",
+          "wall_seconds": 12.79804490035167,
+          "wall_percent": 0.29958539568062753,
+          "cpu_seconds": 12.6875,
+          "cpu_percent": 0.30045252887045387
+        },
+        {
+          "stage": "连通路径拆分",
+          "function": "ArcSlicer.segment_paths",
+          "wall_seconds": 13.857874599227216,
+          "wall_percent": 0.32439461475775283,
+          "cpu_seconds": 13.625,
+          "cpu_percent": 0.32265345464905887
+        },
+        {
+          "stage": "法向计算",
+          "function": "ArcSlicer.compute_normals",
+          "wall_seconds": 27.854629699751968,
+          "wall_percent": 0.6520402393578295,
+          "cpu_seconds": 27.765625,
+          "cpu_percent": 0.6575174184763505
+        },
+        {
+          "stage": "悬空边提取与生长分组",
+          "function": "ArcSlicer.extract_and_group_red_segments",
+          "wall_seconds": 4051.6295309005654,
+          "wall_percent": 94.84331752366391,
+          "cpu_seconds": 4004.984375,
+          "cpu_percent": 94.84198491077078
+        },
+        {
+          "stage": "候选组校正",
+          "function": "ArcSlicer.correct_red_groups",
+          "wall_seconds": 164.38253200042527,
+          "wall_percent": 3.8479788339371743,
+          "cpu_seconds": 162.328125,
+          "cpu_percent": 3.84409029856545
+        },
+        {
+          "stage": "质心计算",
+          "function": "ArcUtils.compute_2d_centroids",
+          "wall_seconds": 0.7267123997444287,
+          "wall_percent": 0.017011381310083593,
+          "cpu_seconds": 0.78125,
+          "cpu_percent": 0.018500771482170806
+        }
+      ],
+      "source_files": {
+        "manifest.json": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260910_234816_105072_recognition\\manifest.json",
+          "bytes": 2133,
+          "sha256": "e944f33bc1b1834374c8caad6bf3d0c21d7a81dbcfb0b147e697afe92b698dcd"
+        },
+        "recognition_progress.jsonl": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260910_234816_105072_recognition\\recognition_progress.jsonl",
+          "bytes": 3250276,
+          "sha256": "8eb4c60406067fd36da7fa623f6c565bfec3dcb887bad1d0ebe27c26e6c4825e"
+        },
+        "recognition_resources.csv": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260910_234816_105072_recognition\\recognition_resources.csv",
+          "bytes": 104080,
+          "sha256": "2557598b5bedaadde25410fdbe2a1de33d1268b7db73679b330e2df105e0d449"
+        },
+        "recognition.log": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260910_234816_105072_recognition\\recognition.log",
+          "bytes": 3428,
+          "sha256": "90968d22ac8ae4953541234dc2cc04493196727c6bfe4288a67ad71d072a9721"
+        }
+      },
+      "peak_rss_GiB": 2.0127410888671875,
+      "peak_private_GiB": 11.24618911743164,
+      "largest_resource_gap": {
+        "seconds": 0.5270000000000437,
+        "from_elapsed_s": 704.656,
+        "to_elapsed_s": 705.183
+      },
+      "last_sample_elapsed_s": 809.759,
+      "task_sums": {
+        "worker_compute_seconds": 4271.930986000021,
+        "worker_spill_seconds": 0,
+        "worker_cleanup_seconds": 0,
+        "result_write_seconds": 49.77639240003191,
+        "return_and_collection_seconds": 69.19049559993437
+      },
+      "worker_gaps_seconds": {
+        "sum": 45.840726799942786,
+        "median": 0.5251869000203442,
+        "max": 0.7971806999994442
+      },
+      "worker_memory": []
+    },
+    {
+      "run_id": "20260911_001506_737358_recognition",
+      "label": "B：12进程完成但含睡眠",
+      "manifest": {
+        "created_at": "2026-09-11T00:15:06.737358+08:00",
+        "scope": "recognition_only_from_existing_slices",
+        "config": {
+          "recognition_input": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260905_201827_352768\\slices.pkl",
+          "mesh": null,
+          "arc_config": null,
+          "output_root": "D:\\project_python\\rock_recognize\\outputs\\benchmarks",
+          "slice_start": 0.0,
+          "slice_stop": 140.0,
+          "slice_step": 0.05,
+          "voxel_size": 0.05,
+          "workers": 12,
+          "block_size": 10,
+          "expected_slices": 2800,
+          "fixed_workers": true,
+          "numeric_threads": 1,
+          "spill_task_results": true,
+          "profile_functions": true,
+          "seed": 42,
+          "min_available_gib": 1.5,
+          "stage_timeout_seconds": 0,
+          "sample_slices": 0,
+          "sample_voxel_faces": 120,
+          "reference_line_faces": null,
+          "reference_voxels": null,
+          "requested_workers": 12
+        },
+        "platform": {
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.12.2 (tags/v3.12.2:6abddd9, Feb  6 2024, 21:26:36) [MSC v.1937 64 bit (AMD64)]",
+          "python_executable": "C:\\Users\\222\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+          "physical_cores": 20,
+          "logical_cpus": 28,
+          "total_ram_bytes": 34053414912,
+          "available_ram_before_bytes": 16224714752,
+          "gpu_compute_used": false,
+          "packages": {
+            "numpy": "1.26.4",
+            "scipy": "1.13.0",
+            "trimesh": "4.3.2",
+            "scikit-learn": "1.4.2",
+            "psutil": "6.0.0",
+            "shapely": "2.1.2",
+            "matplotlib": "3.8.4"
+          },
+          "cpu_name": "Intel(R) Core(TM) i7-14700HX"
+        },
+        "commit_before": {
+          "used_bytes": 28297183232,
+          "limit_bytes": 46401445888,
+          "available_bytes": 18104262656
+        },
+        "input_sha256": {
+          "slices": "734dc4a73772f1c9c61ef589a876520ee0c657d0b95f2a2f61825c3a2b3b8464"
+        },
+        "source_sha256": {
+          "recognition": "d1b25f5670c21197249877e0890677d1ee1fe636d425a0dcafc268d417fe5d82"
+        },
+        "runner_sha256": "8ecb49128ab6e6df5468fb4976cf5ab3e201414d70dd26ab542bdb540b122da6",
+        "scheduler_sha256": "bf0d5ff51cfac2db365147f0f3fdc8f3f6040096e2cd7758f787268916643c4e",
+        "monitor_sha256": "119a5c30b49a091c756b25fe1c60b09737505a5c3e4626e194e4fbfbc8283e49"
+      },
+      "measurement": {
+        "stage": "recognition",
+        "label": "切片读取、多进程识别及保存",
+        "status": "complete",
+        "wall_seconds": 23184.9855026,
+        "exit_code": 0,
+        "failure_reason": null,
+        "resource_measurement_warnings": [],
+        "resource_measurement_complete": true,
+        "peak_tree_rss_bytes": 1785098240,
+        "peak_tree_private_commit_bytes": 1482096640,
+        "min_system_available_bytes": 12481585152,
+        "min_commit_available_bytes": 14827921408,
+        "sampled_cpu_seconds": 38880.421875,
+        "average_busy_cores": 1.6769655461134487,
+        "peak_sampled_busy_cores": 12.436214138248596,
+        "process_io_read_bytes": 5087032671,
+        "process_io_write_bytes": 8525110460,
+        "detail": {
+          "timings": {
+            "slice_read_s": 0.16369630000554025,
+            "parallel_recognition_and_write_s": 23183.73293669999
+          },
+          "completed_slices": 2800,
+          "requested_slices": 2800,
+          "scheduler": "persistent_pool_bounded_completion_order",
+          "pool_count": 1,
+          "task_count": 280,
+          "max_pending_tasks": 24,
+          "write_seconds_inside_parallel_interval": 9.692435100238072,
+          "worker_compute_seconds_sum_not_wall_time": 277760.66147610074
+        }
+      },
+      "completed_tasks": 280,
+      "completed_profiles": 2800,
+      "position_min_m": 0.0,
+      "position_max_m": 139.95,
+      "function_totals": {
+        "ArcSlicer.load_data": {
+          "calls": 2800.0,
+          "inclusive_seconds": 5.363149701617658,
+          "exclusive_seconds": 5.363149701617658,
+          "process_cpu_seconds_inclusive": 5.65625
+        },
+        "ArcSlicer.extract_nodes": {
+          "calls": 2800.0,
+          "inclusive_seconds": 108.1935071994958,
+          "exclusive_seconds": 108.1935071994958,
+          "process_cpu_seconds_inclusive": 106.8125
+        },
+        "ArcUtils.split_segments_to_paths": {
+          "calls": 2800.0,
+          "inclusive_seconds": 20017.323964199168,
+          "exclusive_seconds": 20017.323964199168,
+          "process_cpu_seconds_inclusive": 118.421875
+        },
+        "ArcSlicer.segment_paths": {
+          "calls": 2800.0,
+          "inclusive_seconds": 20017.368413899967,
+          "exclusive_seconds": 0.04444970079930499,
+          "process_cpu_seconds_inclusive": 118.484375
+        },
+        "ArcUtils.order_nonclosed_path": {
+          "calls": 100740.0,
+          "inclusive_seconds": 780.7328849981714,
+          "exclusive_seconds": 780.7328849981714,
+          "process_cpu_seconds_inclusive": 771.65625
+        },
+        "ArcUtils.compute_normals_with_edges_for_subset": {
+          "calls": 20006.0,
+          "inclusive_seconds": 233.21355549801956,
+          "exclusive_seconds": 166.6485882984125,
+          "process_cpu_seconds_inclusive": 229.734375
+        },
+        "ArcSlicer.compute_normals": {
+          "calls": 2800.0,
+          "inclusive_seconds": 236.98550539981807,
+          "exclusive_seconds": 3.771949901798507,
+          "process_cpu_seconds_inclusive": 233.59375
+        },
+        "ArcUtils.get_ordered_red_segments_for_path": {
+          "calls": 14293.0,
+          "inclusive_seconds": 255837.00116080127,
+          "exclusive_seconds": 255770.9656371032,
+          "process_cpu_seconds_inclusive": 36498.3125
+        },
+        "ArcUtils.group_red_segments_by_connection_order": {
+          "calls": 11564.0,
+          "inclusive_seconds": 5.852209700300591,
+          "exclusive_seconds": 5.852209700300591,
+          "process_cpu_seconds_inclusive": 5.640625
+        },
+        "ArcSlicer.extract_and_group_red_segments": {
+          "calls": 2800.0,
+          "inclusive_seconds": 255847.39246290002,
+          "exclusive_seconds": 4.53909239845234,
+          "process_cpu_seconds_inclusive": 36508.140625
+        },
+        "ArcUtils.correct_group_for_segments": {
+          "calls": 72154.0,
+          "inclusive_seconds": 1537.4138886949804,
+          "exclusive_seconds": 889.2814945944992,
+          "process_cpu_seconds_inclusive": 1517.75
+        },
+        "ArcSlicer.correct_red_groups": {
+          "calls": 2800.0,
+          "inclusive_seconds": 1538.0244705993973,
+          "exclusive_seconds": 0.6105819044169039,
+          "process_cpu_seconds_inclusive": 1518.421875
+        },
+        "ArcUtils.compute_2d_centroids": {
+          "calls": 2800.0,
+          "inclusive_seconds": 7.112240999209462,
+          "exclusive_seconds": 7.112240999209462,
+          "process_cpu_seconds_inclusive": 7.25
+        },
+        "process_single_slice": {
+          "calls": 2800.0,
+          "inclusive_seconds": 277760.602333002,
+          "exclusive_seconds": 0.16258230159291998,
+          "process_cpu_seconds_inclusive": 38498.46875
+        }
+      },
+      "stages": [
+        {
+          "stage": "输入整理",
+          "function": "ArcSlicer.load_data",
+          "wall_seconds": 5.363149701617658,
+          "wall_percent": 0.001930853280332348,
+          "cpu_seconds": 5.65625,
+          "cpu_percent": 0.014692142788146607
+        },
+        {
+          "stage": "节点提取",
+          "function": "ArcSlicer.extract_nodes",
+          "wall_seconds": 108.1935071994958,
+          "wall_percent": 0.038952071060741944,
+          "cpu_seconds": 106.8125,
+          "cpu_percent": 0.2774460997231221
+        },
+        {
+          "stage": "连通路径拆分",
+          "function": "ArcSlicer.segment_paths",
+          "wall_seconds": 20017.368413899967,
+          "wall_percent": 7.206698230694904,
+          "cpu_seconds": 118.484375,
+          "cpu_percent": 0.30776386398485006
+        },
+        {
+          "stage": "法向计算",
+          "function": "ArcSlicer.compute_normals",
+          "wall_seconds": 236.98550539981807,
+          "wall_percent": 0.08532005741969861,
+          "cpu_seconds": 233.59375,
+          "cpu_percent": 0.606761145532574
+        },
+        {
+          "stage": "悬空边提取与生长分组",
+          "function": "ArcSlicer.extract_and_group_red_segments",
+          "wall_seconds": 255847.39246290002,
+          "wall_percent": 92.11075664221427,
+          "cpu_seconds": 36508.140625,
+          "cpu_percent": 94.83011093785386
+        },
+        {
+          "stage": "候选组校正",
+          "function": "ArcSlicer.correct_red_groups",
+          "wall_seconds": 1538.0244705993973,
+          "wall_percent": 0.5537230469983963,
+          "cpu_seconds": 1518.421875,
+          "cpu_percent": 3.9441097900809368
+        },
+        {
+          "stage": "质心计算",
+          "function": "ArcUtils.compute_2d_centroids",
+          "wall_seconds": 7.112240999209462,
+          "wall_percent": 0.0025605650835544805,
+          "cpu_seconds": 7.25,
+          "cpu_percent": 0.018831917827900623
+        }
+      ],
+      "source_files": {
+        "manifest.json": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_001506_737358_recognition\\manifest.json",
+          "bytes": 2222,
+          "sha256": "85f677651fe2956b829aaf4b95863534868a008c4fab5c5a4ece769fe21c6486"
+        },
+        "recognition_progress.jsonl": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_001506_737358_recognition\\recognition_progress.jsonl",
+          "bytes": 9902337,
+          "sha256": "37f2d1d500e8c96ad607ddcb96371a2412a0de0a0f520d422954820760cf6b1e"
+        },
+        "recognition_resources.csv": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_001506_737358_recognition\\recognition_resources.csv",
+          "bytes": 431429,
+          "sha256": "ea2aacc56325a830de4e5ff78665fd6331c99128ee640bbbd3c1d11d4ce66625"
+        },
+        "recognition.log": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_001506_737358_recognition\\recognition.log",
+          "bytes": 10851,
+          "sha256": "6553d6e24c548d11a4f44bb4ac48765f7b0cdc875ce75743a8e7af83d54e981f"
+        }
+      },
+      "peak_rss_GiB": 1.6625022888183594,
+      "peak_private_GiB": 1.38031005859375,
+      "largest_resource_gap": {
+        "seconds": 19898.308,
+        "from_elapsed_s": 2124.746,
+        "to_elapsed_s": 22023.054
+      },
+      "last_sample_elapsed_s": 23184.476,
+      "task_sums": {
+        "worker_compute_seconds": 277760.66147610074,
+        "worker_spill_seconds": 323.1359486999281,
+        "worker_cleanup_seconds": 4.476415099867154,
+        "result_write_seconds": 9.692435100238072,
+        "return_and_collection_seconds": 0.4012512998888269
+      },
+      "worker_gaps_seconds": {
+        "sum": 0.5713172000250779,
+        "median": 0.001897499998449348,
+        "max": 0.0047574000200256705
+      },
+      "worker_memory": [
+        {
+          "pid": 29016,
+          "first_rss_MiB": 86.69140625,
+          "last_rss_MiB": 101.27734375,
+          "max_task_end_rss_MiB": 109.93359375
+        },
+        {
+          "pid": 32828,
+          "first_rss_MiB": 86.703125,
+          "last_rss_MiB": 101.42578125,
+          "max_task_end_rss_MiB": 109.453125
+        },
+        {
+          "pid": 35752,
+          "first_rss_MiB": 87.3359375,
+          "last_rss_MiB": 96.59765625,
+          "max_task_end_rss_MiB": 110.921875
+        },
+        {
+          "pid": 36840,
+          "first_rss_MiB": 86.8203125,
+          "last_rss_MiB": 103.8984375,
+          "max_task_end_rss_MiB": 111.015625
+        },
+        {
+          "pid": 36940,
+          "first_rss_MiB": 86.140625,
+          "last_rss_MiB": 99.86328125,
+          "max_task_end_rss_MiB": 109.484375
+        },
+        {
+          "pid": 44808,
+          "first_rss_MiB": 86.2578125,
+          "last_rss_MiB": 95.90625,
+          "max_task_end_rss_MiB": 109.4609375
+        },
+        {
+          "pid": 47008,
+          "first_rss_MiB": 86.86328125,
+          "last_rss_MiB": 99.30859375,
+          "max_task_end_rss_MiB": 109.73828125
+        },
+        {
+          "pid": 48528,
+          "first_rss_MiB": 86.06640625,
+          "last_rss_MiB": 97.41796875,
+          "max_task_end_rss_MiB": 110.40625
+        },
+        {
+          "pid": 48848,
+          "first_rss_MiB": 86.04296875,
+          "last_rss_MiB": 101.8671875,
+          "max_task_end_rss_MiB": 109.6328125
+        },
+        {
+          "pid": 49308,
+          "first_rss_MiB": 85.8984375,
+          "last_rss_MiB": 103.7734375,
+          "max_task_end_rss_MiB": 110.50390625
+        },
+        {
+          "pid": 49524,
+          "first_rss_MiB": 86.71875,
+          "last_rss_MiB": 103.1875,
+          "max_task_end_rss_MiB": 110.10546875
+        },
+        {
+          "pid": 49996,
+          "first_rss_MiB": 86.74609375,
+          "last_rss_MiB": 101.5234375,
+          "max_task_end_rss_MiB": 111.12109375
+        }
+      ]
+    },
+    {
+      "run_id": "20260911_002004_050971_recognition",
+      "label": "C：12进程中断",
+      "manifest": {
+        "created_at": "2026-09-11T00:20:04.050971+08:00",
+        "scope": "recognition_only_from_existing_slices",
+        "config": {
+          "recognition_input": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260905_201827_352768\\slices.pkl",
+          "mesh": null,
+          "arc_config": null,
+          "output_root": "D:\\project_python\\rock_recognize\\outputs\\benchmarks",
+          "slice_start": 0.0,
+          "slice_stop": 140.0,
+          "slice_step": 0.05,
+          "voxel_size": 0.05,
+          "workers": 12,
+          "block_size": 10,
+          "expected_slices": 2800,
+          "fixed_workers": true,
+          "numeric_threads": 1,
+          "spill_task_results": true,
+          "profile_functions": true,
+          "seed": 42,
+          "min_available_gib": 1.5,
+          "stage_timeout_seconds": 0,
+          "sample_slices": 0,
+          "sample_voxel_faces": 120,
+          "reference_line_faces": null,
+          "reference_voxels": null,
+          "requested_workers": 12
+        },
+        "platform": {
+          "os": "Windows-11-10.0.26200-SP0",
+          "python": "3.12.2 (tags/v3.12.2:6abddd9, Feb  6 2024, 21:26:36) [MSC v.1937 64 bit (AMD64)]",
+          "python_executable": "C:\\Users\\222\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+          "physical_cores": 20,
+          "logical_cpus": 28,
+          "total_ram_bytes": 34053414912,
+          "available_ram_before_bytes": 14905942016,
+          "gpu_compute_used": false,
+          "packages": {
+            "numpy": "1.26.4",
+            "scipy": "1.13.0",
+            "trimesh": "4.3.2",
+            "scikit-learn": "1.4.2",
+            "psutil": "6.0.0",
+            "shapely": "2.1.2",
+            "matplotlib": "3.8.4"
+          },
+          "cpu_name": "Intel(R) Core(TM) i7-14700HX"
+        },
+        "commit_before": {
+          "used_bytes": 29855571968,
+          "limit_bytes": 46401445888,
+          "available_bytes": 16545873920
+        },
+        "input_sha256": {
+          "slices": "734dc4a73772f1c9c61ef589a876520ee0c657d0b95f2a2f61825c3a2b3b8464"
+        },
+        "source_sha256": {
+          "recognition": "d1b25f5670c21197249877e0890677d1ee1fe636d425a0dcafc268d417fe5d82"
+        },
+        "runner_sha256": "8ecb49128ab6e6df5468fb4976cf5ab3e201414d70dd26ab542bdb540b122da6",
+        "scheduler_sha256": "bf0d5ff51cfac2db365147f0f3fdc8f3f6040096e2cd7758f787268916643c4e",
+        "monitor_sha256": "119a5c30b49a091c756b25fe1c60b09737505a5c3e4626e194e4fbfbc8283e49"
+      },
+      "measurement": {
+        "stage": "recognition",
+        "label": "切片读取、多进程识别及保存",
+        "status": "failed",
+        "wall_seconds": 1810.0760811000073,
+        "exit_code": 1,
+        "failure_reason": "monitor_aborted: KeyboardInterrupt",
+        "resource_measurement_warnings": [
+          "KeyboardInterrupt: "
+        ],
+        "resource_measurement_complete": false,
+        "peak_tree_rss_bytes": 1779404800,
+        "peak_tree_private_commit_bytes": 1476759552,
+        "min_system_available_bytes": 13385232384,
+        "min_commit_available_bytes": 14832377856,
+        "sampled_cpu_seconds": 21428.140625,
+        "average_busy_cores": 11.838254120223407,
+        "peak_sampled_busy_cores": 12.374839417651897,
+        "process_io_read_bytes": 2476190185,
+        "process_io_write_bytes": 3652981399,
+        "detail": {}
+      },
+      "completed_tasks": 128,
+      "completed_profiles": 1280,
+      "position_min_m": 0.0,
+      "position_max_m": 66.45,
+      "function_totals": {
+        "ArcSlicer.load_data": {
+          "calls": 1280.0,
+          "inclusive_seconds": 2.6105592988024,
+          "exclusive_seconds": 2.6105592988024,
+          "process_cpu_seconds_inclusive": 2.53125
+        },
+        "ArcSlicer.extract_nodes": {
+          "calls": 1280.0,
+          "inclusive_seconds": 51.502080300153466,
+          "exclusive_seconds": 51.502080300153466,
+          "process_cpu_seconds_inclusive": 51.25
+        },
+        "ArcUtils.split_segments_to_paths": {
+          "calls": 1280.0,
+          "inclusive_seconds": 55.47674340000958,
+          "exclusive_seconds": 55.47674340000958,
+          "process_cpu_seconds_inclusive": 54.984375
+        },
+        "ArcSlicer.segment_paths": {
+          "calls": 1280.0,
+          "inclusive_seconds": 55.500619299535174,
+          "exclusive_seconds": 0.023875899525592104,
+          "process_cpu_seconds_inclusive": 55.0
+        },
+        "ArcUtils.order_nonclosed_path": {
+          "calls": 39067.0,
+          "inclusive_seconds": 361.2129288992728,
+          "exclusive_seconds": 361.2129288992728,
+          "process_cpu_seconds_inclusive": 355.5
+        },
+        "ArcUtils.compute_normals_with_edges_for_subset": {
+          "calls": 6942.0,
+          "inclusive_seconds": 111.82800169748953,
+          "exclusive_seconds": 80.00193939797464,
+          "process_cpu_seconds_inclusive": 110.4375
+        },
+        "ArcSlicer.compute_normals": {
+          "calls": 1280.0,
+          "inclusive_seconds": 113.56860839942237,
+          "exclusive_seconds": 1.7406067019328475,
+          "process_cpu_seconds_inclusive": 112.265625
+        },
+        "ArcUtils.get_ordered_red_segments_for_path": {
+          "calls": 5093.0,
+          "inclusive_seconds": 18768.101906999247,
+          "exclusive_seconds": 18736.289365298813,
+          "process_cpu_seconds_inclusive": 18538.578125
+        },
+        "ArcUtils.group_red_segments_by_connection_order": {
+          "calls": 4676.0,
+          "inclusive_seconds": 2.918066199956229,
+          "exclusive_seconds": 2.918066199956229,
+          "process_cpu_seconds_inclusive": 2.734375
+        },
+        "ArcSlicer.extract_and_group_red_segments": {
+          "calls": 1280.0,
+          "inclusive_seconds": 18773.150814100198,
+          "exclusive_seconds": 2.1308409009943716,
+          "process_cpu_seconds_inclusive": 18543.3125
+        },
+        "ArcUtils.correct_group_for_segments": {
+          "calls": 28881.0,
+          "inclusive_seconds": 706.1580679009785,
+          "exclusive_seconds": 408.5837430016545,
+          "process_cpu_seconds_inclusive": 698.09375
+        },
+        "ArcSlicer.correct_red_groups": {
+          "calls": 1280.0,
+          "inclusive_seconds": 706.4470594005252,
+          "exclusive_seconds": 0.28899149954668246,
+          "process_cpu_seconds_inclusive": 698.421875
+        },
+        "ArcUtils.compute_2d_centroids": {
+          "calls": 1280.0,
+          "inclusive_seconds": 3.412017799273599,
+          "exclusive_seconds": 3.412017799273599,
+          "process_cpu_seconds_inclusive": 3.59375
+        },
+        "process_single_slice": {
+          "calls": 1280.0,
+          "inclusive_seconds": 19706.27869750015,
+          "exclusive_seconds": 0.08693890224094503,
+          "process_cpu_seconds_inclusive": 19466.453125
+        }
+      },
+      "stages": [
+        {
+          "stage": "输入整理",
+          "function": "ArcSlicer.load_data",
+          "wall_seconds": 2.6105592988024,
+          "wall_percent": 0.013247347908124143,
+          "cpu_seconds": 2.53125,
+          "cpu_percent": 0.013003139214658552
+        },
+        {
+          "stage": "节点提取",
+          "function": "ArcSlicer.extract_nodes",
+          "wall_seconds": 51.502080300153466,
+          "wall_percent": 0.2613485838231182,
+          "cpu_seconds": 51.25,
+          "cpu_percent": 0.2632734359511114
+        },
+        {
+          "stage": "连通路径拆分",
+          "function": "ArcSlicer.segment_paths",
+          "wall_seconds": 55.500619299535174,
+          "wall_percent": 0.2816392691461109,
+          "cpu_seconds": 55.0,
+          "cpu_percent": 0.2825373458987537
+        },
+        {
+          "stage": "法向计算",
+          "function": "ArcSlicer.compute_normals",
+          "wall_seconds": 113.56860839942237,
+          "wall_percent": 0.5763067200192858,
+          "cpu_seconds": 112.265625,
+          "cpu_percent": 0.5767133040575413
+        },
+        {
+          "stage": "悬空边提取与生长分组",
+          "function": "ArcSlicer.extract_and_group_red_segments",
+          "wall_seconds": 18773.150814100198,
+          "wall_percent": 95.2648194125138,
+          "cpu_seconds": 18543.3125,
+          "cpu_percent": 95.2577872349306
+        },
+        {
+          "stage": "候选组校正",
+          "function": "ArcSlicer.correct_red_groups",
+          "wall_seconds": 706.4470594005252,
+          "wall_percent": 3.584883124027581,
+          "cpu_seconds": 698.421875,
+          "cpu_percent": 3.5878229614569297
+        },
+        {
+          "stage": "质心计算",
+          "function": "ArcUtils.compute_2d_centroids",
+          "wall_seconds": 3.412017799273599,
+          "wall_percent": 0.017314368946311675,
+          "cpu_seconds": 3.59375,
+          "cpu_percent": 0.018461247033157203
+        }
+      ],
+      "source_files": {
+        "manifest.json": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_002004_050971_recognition\\manifest.json",
+          "bytes": 2222,
+          "sha256": "7fefca5fefbd836e265cb914b9fd6ac7177e9f03b51eee8926ee4a14977d5777"
+        },
+        "recognition_progress.jsonl": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_002004_050971_recognition\\recognition_progress.jsonl",
+          "bytes": 4508316,
+          "sha256": "9f0d412b591f20661684f95dc0f08487af9446c307f39dfa6170ccb717605e8d"
+        },
+        "recognition_resources.csv": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_002004_050971_recognition\\recognition_resources.csv",
+          "bytes": 234984,
+          "sha256": "52d29e7a9375ca05b346dab4a418b768fd6ab15475a74c85e75806c3bdbe223f"
+        },
+        "recognition.log": {
+          "path": "D:\\project_python\\rock_recognize\\outputs\\benchmarks\\20260911_002004_050971_recognition\\recognition.log",
+          "bytes": 4792,
+          "sha256": "20b85eb9c6b7d1c07f951e14e43535c2a9e2f6925e614bc60cb389eb56e5380d"
+        }
+      },
+      "peak_rss_GiB": 1.6571998596191406,
+      "peak_private_GiB": 1.3753395080566406,
+      "largest_resource_gap": {
+        "seconds": 0.5549999999998363,
+        "from_elapsed_s": 1071.18,
+        "to_elapsed_s": 1071.735
+      },
+      "last_sample_elapsed_s": 1809.452,
+      "task_sums": {
+        "worker_compute_seconds": 19706.310512099677,
+        "worker_spill_seconds": 153.1973972999258,
+        "worker_cleanup_seconds": 2.295667000085814,
+        "result_write_seconds": 4.941732799983583,
+        "return_and_collection_seconds": 0.2256344000052195
+      },
+      "worker_gaps_seconds": {
+        "sum": 0.26556519998121075,
+        "median": 0.001723399996990338,
+        "max": 0.004969500005245209
+      },
+      "worker_memory": [
+        {
+          "pid": 1256,
+          "first_rss_MiB": 86.7578125,
+          "last_rss_MiB": 105.9453125,
+          "max_task_end_rss_MiB": 107.17578125
+        },
+        {
+          "pid": 16616,
+          "first_rss_MiB": 86.5234375,
+          "last_rss_MiB": 109.19140625,
+          "max_task_end_rss_MiB": 109.19140625
+        },
+        {
+          "pid": 17224,
+          "first_rss_MiB": 86.9609375,
+          "last_rss_MiB": 104.0859375,
+          "max_task_end_rss_MiB": 108.32421875
+        },
+        {
+          "pid": 32484,
+          "first_rss_MiB": 86.09765625,
+          "last_rss_MiB": 106.9296875,
+          "max_task_end_rss_MiB": 110.4140625
+        },
+        {
+          "pid": 33564,
+          "first_rss_MiB": 86.64453125,
+          "last_rss_MiB": 105.90234375,
+          "max_task_end_rss_MiB": 108.36328125
+        },
+        {
+          "pid": 34948,
+          "first_rss_MiB": 87.05078125,
+          "last_rss_MiB": 107.17578125,
+          "max_task_end_rss_MiB": 107.328125
+        },
+        {
+          "pid": 36296,
+          "first_rss_MiB": 86.734375,
+          "last_rss_MiB": 108.8046875,
+          "max_task_end_rss_MiB": 109.12890625
+        },
+        {
+          "pid": 42344,
+          "first_rss_MiB": 86.0234375,
+          "last_rss_MiB": 109.3515625,
+          "max_task_end_rss_MiB": 109.3515625
+        },
+        {
+          "pid": 42924,
+          "first_rss_MiB": 86.94140625,
+          "last_rss_MiB": 105.0234375,
+          "max_task_end_rss_MiB": 107.4609375
+        },
+        {
+          "pid": 46156,
+          "first_rss_MiB": 86.87109375,
+          "last_rss_MiB": 106.00390625,
+          "max_task_end_rss_MiB": 106.66796875
+        },
+        {
+          "pid": 48796,
+          "first_rss_MiB": 86.07421875,
+          "last_rss_MiB": 105.59765625,
+          "max_task_end_rss_MiB": 108.078125
+        },
+        {
+          "pid": 49444,
+          "first_rss_MiB": 86.5703125,
+          "last_rss_MiB": 107.6796875,
+          "max_task_end_rss_MiB": 110.328125
+        }
+      ]
+    }
+  ],
+  "common_profiles": [
+    {
+      "run_id": "20260910_234816_105072_recognition",
+      "profiles": 930,
+      "sum_profile_wall_s": 4271.918820099963,
+      "sum_profile_cpu_s": 4222.796875
+    },
+    {
+      "run_id": "20260911_001506_737358_recognition",
+      "profiles": 930,
+      "sum_profile_wall_s": 7635.1755283999955,
+      "sum_profile_cpu_s": 7566.0625
+    },
+    {
+      "run_id": "20260911_002004_050971_recognition",
+      "profiles": 930,
+      "sum_profile_wall_s": 9243.572970899957,
+      "sum_profile_cpu_s": 9142.765625
+    }
+  ],
+  "sleep_evidence": {
+    "provider": "Microsoft-Windows-Power-Troubleshooter",
+    "event_id": 1,
+    "event_local": "2026-09-11T06:22:03+08:00",
+    "sleep_utc": "2026-09-10T16:50:25.695427400Z",
+    "wake_utc": "2026-09-10T22:22:02.732722600Z",
+    "kernel_power_event42_local": "2026-09-11T00:50:27+08:00",
+    "kernel_power_reason": "Application API",
+    "note": "由本机 System 事件日志只读查询；不据此推断发起休眠的具体应用。"
+  }
+}
