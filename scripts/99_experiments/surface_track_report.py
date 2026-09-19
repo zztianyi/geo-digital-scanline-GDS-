@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import numpy as np
+from surface_track_local_review import (local_view_bounds, clipped_segments, vertical_coverage,
+    prepare_local_review, write_local_review)
 
 
 def render_case(data, cid, output):
@@ -10,77 +12,74 @@ def render_case(data, cid, output):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
-    case = data['case_map'][cid]
-    result = data['results'][cid]
-    old = data['previous']['results'][cid]
-    graph = data['graph']
-    s = float(case['slice_key'])
-    selected = result['selection']['selected']
-    tid = result['surface_track_id']
+    from matplotlib.collections import LineCollection
+    plot = data['local_plot_cases'][cid]
+    row, bounds = plot['row'], plot['bounds']
     fig, axes = plt.subplots(1, 2, figsize=(13, 7), sharex=True, sharey=True)
-    curves = [np.array([case['lower_uz'], case['upper_uz']])]
-    curves += [r['curve_uz'] for r in (result, old) if len(r['curve_uz'])]
-    combined = np.concatenate(curves)
-    ul, uh = combined[:, 0].min(), combined[:, 0].max()
-    zl, zh = combined[:, 1].min(), combined[:, 1].max()
-    upad, zpad = max(.015, (uh-ul)*.1), max(.02, (zh-zl)*.06)
+    def lines(ax, segments, color, width=1., alpha=1., style='solid', order=2):
+        if len(segments):
+            ax.add_collection(LineCollection(segments, colors=color, linewidths=width,
+                alpha=alpha, linestyles=style, zorder=order))
     for ax in axes:
-        for b in data['branches'][case['slice_key']]:
-            p = b['points_uz']
-            ax.plot(p[:, 0], p[:, 1], color='#aeb5bd', lw=.8, alpha=.65)
-        ax.scatter([case['lower_uz'][0], case['upper_uz'][0]], [case['lower_uz'][1], case['upper_uz'][1]],
-                   s=9, color='black', alpha=.4, zorder=3)
-        ax.set(xlim=(ul-upad, uh+upad), ylim=(zl-zpad, zh+zpad), xlabel='Radial offset u (m)')
+        for bid, segments in plot['background']:
+            lines(ax, segments, '#aeb5bd', 1.3, .85)
+        endpoints = plot['endpoints']
+        ax.scatter(endpoints[:, 0], endpoints[:, 1], s=22, color='#252525', alpha=.65, zorder=7)
+        ax.set(xlim=bounds[:2], ylim=bounds[2:], xlabel='Radial offset u (m)')
         ax.ticklabel_format(style='plain', useOffset=False)
         ax.grid(alpha=.15)
-    if len(old['curve_uz']):
-        p = old['curve_uz']
-        axes[0].plot(p[:, 0], p[:, 1], color='#b77541', lw=2.5)
-    axes[0].set(title=f"Previous | branch {data['previous']['rows'][next(i for i,r in enumerate(data['previous']['rows']) if r['candidate_id']==cid)]['dominant_branch_id']}",
-                ylabel='Elevation z (m)')
-    if tid:
-        near = set(data['frozen'].neighbors(case['slice_key']))
-        for node, b in graph['nodes'].items():
-            if node[0] != s and any(abs(float(k)-node[0]) < 1e-9 for k in near) and graph['membership'][node] == tid:
-                p = b['points_uz']
-                axes[1].plot(p[:, 0], p[:, 1], color='#93c7e8', lw=1., alpha=.55)
-    for r in result['path_edges']:
-        observed = r['source'].startswith('OBSERVED')
-        switch = r['source'] == 'TOPOLOGY_SWITCH'
-        p = np.asarray(r['points_uz'])
-        axes[1].plot(p[:, 0], p[:, 1], color='#1865b1' if observed else '#dfa814' if switch else '#d12e43',
-                     lw=2.5 if observed else 1.8, ls='-' if observed or switch else '--', zorder=4)
-    raw = [h for h in graph['observations'] if h['s'] == s and zl-zpad <= h['z'] <= zh+zpad and ul-upad <= h['u'] <= uh+upad]
-    linked = [h for h in graph['linked_observations'] if h['s'] == s and any(graph['membership'][n] == tid for n in h['nodes'])]
-    axes[1].scatter([h['u'] for h in raw], [h['z'] for h in raw], color='#a4dcb3', marker='x', s=14, zorder=5)
-    axes[1].scatter([h['u'] for h in linked], [h['z'] for h in linked], color='#146b3a', marker='o', s=10, zorder=6)
-    if result['junction']:
-        j = result['junction']
-        p = np.array([j['a_point_uz'], j['b_point_uz']])
-        axes[1].scatter(p[:, 0], p[:, 1], color='#8b43ba', s=32, zorder=7)
-        axes[1].axhspan(*j['confidence_crossover_interval'], color='#e4bd57', alpha=.12)
-    axes[1].set_title(f"Surface {tid or 'unresolved'} | branch {selected['branch_id'] if selected else '-'}\n{result['status']}", fontsize=9)
-    fig.suptitle(f"{cid} | s={s:.2f} m | endpoint influence = 0", fontsize=13)
+    for kind, segments in plot['old_paths'].items():
+        lines(axes[0], segments, {'observed':'#b77541', 'switch':'#dfa814', 'inferred':'#d12e43'}[kind],
+              2.8, style='dashed' if kind == 'inferred' else 'solid', order=4)
+    old_title = ('Previous inference proposal (unaccepted)' if plot['old_status'] == 'INFERRED_REVIEW_PROPOSAL'
+                 else f"Previous dominant branch {plot['old_branch']}")
+    axes[0].set_title(f"{old_title}\nOutput / proposal Z coverage: {row['previous_local_z_coverage']:.1%}", fontsize=11)
+    axes[0].set_ylabel('Elevation z (m)')
+    lines(axes[1], plot['neighbors'], '#93c7e8', 1.3, .75, order=3)
+    for kind, segments in plot['paths'].items():
+        lines(axes[1], segments, {'observed':'#1865b1', 'switch':'#dfa814', 'inferred':'#d12e43'}[kind],
+              2.8, style='dashed' if kind == 'inferred' else 'solid', order=4)
+    for points, color, marker, size in ((plot['raw_H'], '#a4dcb3', 'x', 28), (plot['selected_H'], '#146b3a', 'o', 18)):
+        axes[1].scatter(points[:, 0], points[:, 1], color=color, marker=marker, s=size, zorder=6)
+    points = plot['junction_points']
+    axes[1].scatter(points[:, 0], points[:, 1], color='#8b43ba', s=32, zorder=7)
+    crossover = plot['crossover_interval']
+    if crossover and max(crossover[0], bounds[2]) < min(crossover[1], bounds[3]):
+        axes[1].axhspan(max(crossover[0], bounds[2]), min(crossover[1], bounds[3]), color='#e4bd57', alpha=.12)
+    axes[1].set_title(f"Current {row['selected_track'] or 'unresolved'} / branch {row['selected_branch']}\nLocal Z coverage: {row['local_selected_z_coverage']:.1%} | ambiguous: {row['ambiguous']}", fontsize=11)
+    note = ('SELECTED TRACK ABSENT IN THIS LOCAL VIEW' if row['selected_absent_from_local_view'] else
+            'TOUCHES VIEW ONLY; NO CASE-Z COVERAGE' if row['local_selected_z_coverage'] == 0 else
+            'PARTIAL LOCAL COVERAGE' if row['local_selected_z_coverage'] < .95 else
+            'COVERED LOCALLY; TRACK IDENTITY AMBIGUOUS' if row['ambiguous'] else 'OBSERVED LOCAL COVERAGE; IDENTITY NEEDS REVIEW')
+    axes[1].text(.02, .98, note, transform=axes[1].transAxes, va='top', fontsize=9,
+                 color='#922e35', bbox=dict(facecolor='white', alpha=.92, edgecolor='#dbb8bb', pad=5), zorder=9)
+    fig.suptitle(f"{row['old_category']} / {cid} / s={float(row['slice_key']):.2f} m | LOCAL DETAIL", fontsize=14, y=.98)
+    fig.text(.5, .91, f"{row['status']} | raw H: {row['raw_H_in_view']} | selected-track linked H: {row['selected_track_linked_H_in_view']}",
+             ha='center', fontsize=10)
     legend = [Line2D([], [], c='#1865b1', lw=2.5, label='Selected observed track'),
+        Line2D([], [], c='#b77541', lw=2.5, label='Previous observed output'),
         Line2D([], [], c='#93c7e8', label='Same-track neighbor'), Line2D([], [], c='#aeb5bd', label='Other observed'),
         Line2D([], [], c='#a4dcb3', marker='x', ls='', label='Raw H observations'),
         Line2D([], [], c='#146b3a', marker='o', ls='', label='Surface-linked H'),
         Line2D([], [], c='#dfa814', label='Topology switch'),
+        Line2D([], [], c='#252525', marker='o', ls='', label='Historical case endpoints'),
         Line2D([], [], c='#8b43ba', marker='o', ls='', label='Virtual junction'),
         Line2D([], [], c='#d12e43', ls='--', label='Inferred only')]
     fig.legend(handles=legend, loc='lower center', ncol=4, frameon=False, fontsize=9)
-    fig.subplots_adjust(top=.87, bottom=.15, left=.08, right=.98, wspace=.13)
+    fig.text(.5, .105, f"Same local axes | window {bounds[1]-bounds[0]:.3f} m (u) x {bounds[3]-bounds[2]:.3f} m (z) | ROI is display-only", ha='center', fontsize=9)
+    fig.subplots_adjust(top=.81, bottom=.20, left=.08, right=.98, wspace=.13)
     path = output/'figures'/f'{cid}.png'
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=140)
+    fig.savefig(path, dpi=170)
     plt.close(fig)
     return path
 
 
 def render_reports(data, output):
+    prepare_local_review(data, output)
     summary = data['summary']
     review = ['# 代表案例审核', '',
-        '固定复用上一轮29个代表案例，左为上一轮实测结果，右为本轮结果。不同旧案例如果属于同一 slice，将引用同一个 surface-first 决策；旧案例不是新的配对单位。', '',
+        '固定复用上一轮29个代表案例，左为上一轮实测结果，右为本轮结果。左右使用同尺度局部放大，窗口只按原案例及旧局部几何确定，不再被完整 branch 范围扩大。详见 LOCAL_FAILURE_REVIEW.md 的局部问题统计。不同旧案例如果属于同一 slice，将引用同一个 surface-first 决策；旧案例不是新的配对单位。', '',
         '完整观测保留不等于已证明该曲面就是人工意图中的目标。请人工核对右图 track；歧义轨道不宣称通过验收。浅绿叉仅为 raw H，深绿点才是同路径相邻剖面支持。黑色旧端点已弱化。', '']
     for item in data['representatives']:
         cid = item['candidate_id']
@@ -98,6 +97,7 @@ def render_reports(data, output):
             f"低可靠尾部移除长度：{result['observed_low_confidence_tail_removed']:.6f}m；synthetic connector：{result['connector_length_m']:.6f}m；inferred：{result['inferred_length_m']:.6f}m。", '',
             '实际几何见图；是否修正上一轮人工指出的错误仍需人工逐图确认，不能用坐标未移动代替身份正确性证明。', '']
     (output/'REPRESENTATIVE_REVIEW.md').write_text('\n'.join(review), encoding='utf-8')
+    write_local_review(data, output, render_case)
     statuses = dict(ENDPOINT_INDEPENDENCE='SUPPORTED', HORIZONTAL_SURFACE_IDENTITY='PARTIALLY_SUPPORTED',
         SURFACE_TRACK_SELECTION='PARTIALLY_SUPPORTED', CONFIDENCE_CROSSOVER_HANDOFF='PARTIALLY_SUPPORTED',
         OBSERVED_COORDINATE_PRESERVATION='SUPPORTED', SURFACE_IDENTITY_PRESERVATION='PARTIALLY_SUPPORTED',

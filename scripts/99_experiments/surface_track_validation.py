@@ -19,7 +19,7 @@ import numpy as np
 
 from locc_data import FrozenProfiles, opc, xyz_from_uz
 from validate_observed_first_locc import target_canonical_profile
-from validate_orthogonal_scanline_constraint import StageSampler, save_csv, save_json
+from validate_orthogonal_scanline_constraint import StageSampler, save_csv, save_json, json_default
 from dominant_observed_branch import extract_observed_branches, solve_dominant_branch, select_dominant_branch, trim_record
 from horizontal_surface_link import horizontal_mesh_observations
 from observed_surface_graph import build_surface_graph
@@ -279,6 +279,12 @@ def run(args):
     with StageSampler('plotting_and_reports', output, stages):
         from surface_track_report import render_reports
         render_reports(data, output)
+    summary['local_review'] = dict(
+        cases=len(data['local_rows']),
+        selected_absent_from_local_view=sum(r['selected_absent_from_local_view'] for r in data['local_rows']),
+        local_z_coverage_below_95_percent=sum(r['local_selected_z_coverage'] < .95 for r in data['local_rows']),
+        focused_cases=data['local_focus'],
+        metrics_are_diagnostic_not_ground_truth=True)
     summary.update(total_wall_seconds=time.perf_counter()-started,
         peak_rss_gib=max(s['peak_tree_rss_bytes'] for s in stages)/2**30,
         peak_private_gib=max(s['peak_tree_private_bytes'] for s in stages)/2**30)
@@ -288,10 +294,12 @@ def run(args):
         prior=str(args.prior.resolve()), previous=str(args.previous.resolve()),
         branch=summary['branch'], head=summary['head'], no_commit=True,
         code_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                     for p in (ROOT/'scripts/04_structure_recognition').glob('*.py')}))
+                     for p in [*(ROOT/'scripts/04_structure_recognition').glob('*.py'),
+                               Path(__file__), Path(__file__).with_name('surface_track_report.py'),
+                               Path(__file__).with_name('surface_track_local_review.py')]}))
     with (output/'FINAL_REVIEW.md').open('a', encoding='utf-8') as stream:
         stream.write(f"\n实测总时间：{summary['total_wall_seconds']:.2f}s；峰值 RSS：{summary['peak_rss_gib']:.3f} GiB。详见 stage_performance.csv。\n")
-    print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
+    print(json.dumps(summary, ensure_ascii=False, indent=2, default=json_default), flush=True)
 
 
 def git_value(*args):
