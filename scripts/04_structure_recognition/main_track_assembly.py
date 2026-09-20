@@ -147,88 +147,137 @@ def _splice(left, right, junction):
     return a+[connector]+b
 
 
-def assemble_main_track(branches, initial_route, *, anchor_branch_id, review_gap_m=.01):
-    """Continue beyond each end; a lone local candidate does not end the scan.
+def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None, target_s=None,
+                        policy=None, review_gap_m=None):
+    """Choose an evidenced branch first, then search its bounded connection.
 
-Only branches with new elevation extent are continuations. Fully overlapping
-alternatives cannot replace a complete measured fold just because they are
-smoother. Long shortest connectors remain visible and explicitly need review.
-"""
+    Rejected candidates cannot expand the requested extent. Every accepted
+    piece retains a physical absolute core; even a zero-length intersection
+    cannot promote an endpoint sliver or a short A-B-A excursion.
+    """
     from dominant_observed_branch import route_result
-    branches = [b for b in branches if b['kind'] != 'CLOSED_COMPONENT' and b['full_arc_length'] > 1e-6]
-    records = [dict(r) for r in initial_route['path_edges']]
-    junctions = list(initial_route.get('junctions', []))
-    if not junctions and initial_route.get('junction'):
-        junctions = [initial_route['junction']]
+    from branch_absolute_core import (BranchPolicy,local_edge_scale,branch_metrics,
+                                      contribution_metrics,connector_gate,route_budgets)
+    from surface_track_selection import branch_evidence,choose_candidate,same_surface_detail
+    policy=policy or BranchPolicy()
+    scale=local_edge_scale(branches)
+    by_id={b['branch_id']:b for b in branches}
+    evidence={b['branch_id']:branch_evidence(graph,(float(target_s),b['branch_id']),policy=policy,edge_scale=scale)
+              if graph is not None else dict(branch_metrics(b,scale,policy),surface_support_tier=0)
+              for b in branches if b['kind']!='CLOSED_COMPONENT'}
+    reliable=[b for b in branches if b['branch_id'] in evidence and evidence[b['branch_id']]['MBG_pass']
+              and (evidence[b['branch_id']]['surface_support_tier'] or b['branch_id']==anchor_branch_id)]
+    records=[dict(r) for r in initial_route['path_edges']]
     if not records:
-        return initial_route
-    # Orient a single seed once, preserving all of its internal folds.
+        return {**initial_route,'branch_audit':list(evidence.values()),'unresolved_reasons':['NO_RELIABLE_BRANCH']}
+    junctions=list(initial_route.get('junctions',[]))
+    if not junctions and initial_route.get('junction'):
+        junctions=[initial_route['junction']]
     if not junctions:
-        records = _oriented(records)
-    attempts = []
+        records=_oriented(records)
+    attempts=[]; rejections=[]; decisions=[]
+    blocked=set()
     while True:
-        old_points = _points(records)
-        required = [float(old_points[:, 1].min()), float(old_points[:, 1].max())]
-        pieces = _remaining(branches, records)
-        choices = []
-        for direction in ('lower', 'upper'):
-            terminal = []
-            for r in (records if direction == 'lower' else records[::-1]):
-                if not r['source'].startswith('OBSERVED') or (terminal and r['branch_id'] != terminal[0]['branch_id']):
+        points=_points(records)
+        required=[float(points[:,1].min()),float(points[:,1].max())]
+        pieces=_remaining(reliable,records)
+        choices=[]
+        for direction in ('lower','upper'):
+            if direction in blocked:
+                continue
+            terminal=[]
+            for r in (records if direction=='lower' else records[::-1]):
+                if not r['source'].startswith('OBSERVED') or (terminal and r['branch_id']!=terminal[0]['branch_id']):
                     break
                 terminal.append(r)
-            if direction == 'upper':
-                terminal.reverse()
-            if not terminal:
-                continue
-            locked = records[len(terminal):] if direction == 'lower' else records[:-len(terminal)]
-            locked_z = [p[1] for r in locked for p in r['points_uz']]
-            locked_range = (min(locked_z), max(locked_z)) if locked_z else (np.inf, -np.inf)
-            count = 0
-            for piece in pieces:
-                p = _points(piece)
-                if direction == 'lower' and p[:, 1].min() >= required[0]-1e-6:
+            if direction=='upper': terminal.reverse()
+            if not terminal: continue
+            locked=records[len(terminal):] if direction=='lower' else records[:-len(terminal)]
+            locked_z=[p[1] for r in locked for p in r['points_uz']]
+            locked_range=(min(locked_z),max(locked_z)) if locked_z else (np.inf,-np.inf)
+            options=[]
+            for index,piece in enumerate(pieces):
+                p=_points(piece); bid=piece[0]['branch_id']
+                if direction=='lower' and p[:,1].min()>=required[0]-1e-6: continue
+                if direction=='upper' and p[:,1].max()<=required[1]+1e-6: continue
+                z_gap=max(0.,required[0]-float(p[:,1].max())) if direction=='lower' else max(0.,float(p[:,1].min())-required[1])
+                if z_gap>policy.connector_cap_m+1e-12:
+                    rejections.append(dict(branch_id=bid,frontier=direction,reason='LONG_GAP_UNRESOLVED',minimum_possible_gap_m=z_gap))
                     continue
-                if direction == 'upper' and p[:, 1].max() <= required[1]+1e-6:
+                region=(float(p[:,1].min()),required[0]) if direction=='lower' else (required[1],float(p[:,1].max()))
+                row=branch_evidence(graph,(float(target_s),bid),policy=policy,edge_scale=scale,target_z=region) if graph is not None else evidence[bid].copy()
+                contribution=contribution_metrics(by_id[bid],piece,evidence[bid])
+                if not contribution['contribution_pass'] or row['target_region_in_ASC_fraction']<=0:
+                    rejections.append(dict(branch_id=bid,frontier=direction,reason='REJECT_NO_RETAINED_CORE',**contribution))
                     continue
-                count += 1
-                left, right = (piece, terminal) if direction == 'lower' else (terminal, piece)
-                join = _nearest_join(left, right, required, locked_range, direction)
-                if join is None:
+                if not row['surface_support_tier']:
+                    rejections.append(dict(branch_id=bid,frontier=direction,reason='REJECT_SURFACE_EVIDENCE'))
                     continue
-                rank = (0. if join['distance_m'] < EPS else join['distance_m'],
-                        join['removed_terminal_length_m'], join['from_branch_id'], join['to_branch_id'])
-                choices.append((rank, left, right, locked, join))
-            attempts.append(dict(frontier=direction, current_z_range=required, extending_piece_count=count))
-        if not choices:
-            break
-        _, left, right, locked, join = min(choices, key=lambda c: c[0])
-        extension = _splice(left, right, join)
-        records = extension+locked if join['frontier'] == 'lower' else locked+extension
-        join['needs_manual_confirmation'] = join['xyz_distance_m'] > review_gap_m
-        if join['frontier'] == 'lower':
-            junctions.insert(0, join)
-        else:
-            junctions.append(join)
-        # Every step must extend the observed extent; never silently stop at a
-        # branch-count cap. This guard indicates an implementation error only.
-        if len(junctions) > 2*sum(len(b['records']) for b in branches):
-            raise RuntimeError('Main-track continuation failed to make finite progress')
+                options.append(dict(row,piece_index=index))
+            attempts.append(dict(frontier=direction,current_z_range=required,extending_piece_count=len(options)))
+            if not options: continue
+            decision=choose_candidate(options,policy=policy,current_branch_id=terminal[0]['branch_id'],
+                detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
+            target=decision['selected']
+            decisions.append(dict(frontier=direction,branch_id=target['branch_id'],stage=decision['decision_stage'],
+                ambiguous=decision['ambiguous'],comparison_ambiguous=decision['comparison_ambiguous'],
+                detail_stage_comparisons=decision['detail_stage_comparisons']))
+            # Equal evidence without the current branch is an unresolved fork.
+            if decision['comparison_ambiguous'] and target['branch_id']!=terminal[0]['branch_id']:
+                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],reason='AMBIGUOUS_CONTINUATION'))
+                blocked.add(direction); continue
+            piece=pieces[target['piece_index']]
+            left,right=(piece,terminal) if direction=='lower' else (terminal,piece)
+            join=_nearest_join(left,right,required,locked_range,direction)
+            if join is None:
+                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],reason='NO_VALID_JUNCTION'))
+                blocked.add(direction); continue
+            extension=_splice(left,right,join)
+            # Use edge identity instead of splice indexes: zero-length endpoint
+            # trims can remove records and shift the synthetic record position.
+            separator=next(i for i,r in enumerate(extension) if r['source']=='TOPOLOGY_SWITCH')
+            contribution_records=extension[:separator] if direction=='lower' else extension[separator+1:]
+            contribution=contribution_metrics(by_id[target['branch_id']],contribution_records,evidence[target['branch_id']])
+            gate=connector_gate(join['xyz_distance_m'],contribution['observed_new_length_m'],policy)
+            new_records=extension+locked if direction=='lower' else locked+extension
+            budgets=route_budgets(new_records,by_id,evidence,policy)
+            budget_failure=next((b['reason'] for b in budgets if not b['accepted']),None)
+            # Any branch left between two switches must still supply a core.
+            retained_ok=all(contribution_metrics(by_id[bid],new_records,evidence[bid])['contribution_pass']
+                            for bid in {r['branch_id'] for r in new_records if r['source'].startswith('OBSERVED')})
+            if not contribution['contribution_pass'] or not retained_ok or not gate['accepted'] or budget_failure:
+                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],junction=join,**contribution,
+                    **{**gate,'reason':gate['reason'] if not gate['accepted'] else budget_failure or 'REJECT_NO_RETAINED_CORE'}))
+                blocked.add(direction); continue
+            join.update(contribution,**gate,needs_manual_confirmation=False)
+            # Choices already have one fixed identity per frontier. Geometry is
+            # not compared across branches; alternate lower/upper deterministically.
+            choices.append((direction,new_records,join))
+        if not choices: break
+        direction,records,join=choices[0]
+        if direction=='lower': junctions.insert(0,join)
+        else: junctions.append(join)
+        if len(junctions)>2*sum(len(b['records']) for b in reliable):
+            raise RuntimeError('Non-progressing continuation')
     for r in records:
         if r['source'].startswith('OBSERVED'):
-            r['source'] = 'OBSERVED_DOMINANT' if r['branch_id'] == anchor_branch_id else 'OBSERVED_SECONDARY'
-    switches = sum(j['from_branch_id'] != j['to_branch_id'] for j in junctions)
-    result = route_result(records, branch_switch_count=switches, junction=junctions[0] if junctions else None)
-    extent = [min(b['z_range'][0] for b in branches), max(b['z_range'][1] for b in branches)]
-    actual = [float(result['curve_uz'][:, 1].min()), float(result['curve_uz'][:, 1].max())]
-    sequence = []
+            r['source']='OBSERVED_DOMINANT' if r['branch_id']==anchor_branch_id else 'OBSERVED_SECONDARY'
+    sequence=[]
     for r in records:
-        if r['source'].startswith('OBSERVED') and (not sequence or sequence[-1] != r['branch_id']):
-            sequence.append(r['branch_id'])
-    return {**result, 'junctions': junctions, 'junction_count': len(junctions), 'route_branch_sequence': sequence,
-        'observed_low_confidence_tail_removed': initial_route.get('observed_low_confidence_tail_removed', 0.),
-        'low_confidence_tail_metric_scope': 'initial_confidence_crossover_only',
-        'virtual_junction_count': sum(j['new_virtual_nodes'] for j in junctions),
-        'continuation_attempts': attempts, 'candidate_z_extent': extent, 'route_z_extent': actual,
-        'extent_covered': actual[0] <= extent[0]+1e-6 and actual[1] >= extent[1]-1e-6,
-        'review_gap_m': review_gap_m, 'large_connector_count': sum(j['xyz_distance_m'] > review_gap_m for j in junctions)}
+        if r['source'].startswith('OBSERVED') and (not sequence or sequence[-1]!=r['branch_id']): sequence.append(r['branch_id'])
+    result=route_result(records,branch_switch_count=max(0,len(sequence)-1),junction=junctions[0] if junctions else None)
+    actual=[float(result['curve_uz'][:,1].min()),float(result['curve_uz'][:,1].max())]
+    extent=[min(b['z_range'][0] for b in reliable),max(b['z_range'][1] for b in reliable)] if reliable else actual
+    covered=actual[0]<=extent[0]+1e-6 and actual[1]>=extent[1]-1e-6
+    excluded=[bid for bid,e in evidence.items() if not e['MBG_pass'] and
+              (by_id[bid]['z_range'][0]<actual[0]-1e-6 or by_id[bid]['z_range'][1]>actual[1]+1e-6)]
+    return {**result,'junctions':junctions,'junction_count':len(junctions),'route_branch_sequence':sequence,
+        'branch_audit':list(evidence.values()),'continuation_attempts':attempts,'continuation_decisions':decisions,
+        'route_contribution_budgets':route_budgets(records,by_id,evidence,policy),
+        'route_identity_ambiguous':any(evidence[bid].get('track_ambiguous',False) for bid in sequence),
+        'continuation_rejections':rejections,'excluded_extent_branch_ids':excluded,
+        'unresolved_reasons':sorted(({r['reason'] for r in rejections} if not covered else set())|({'UNCOVERED_RELIABLE_EXTENT'} if not covered else set())|
+                                  ({'EXCLUDED_UNRELIABLE_EXTENT'} if excluded else set())),
+        'candidate_z_extent':extent,'route_z_extent':actual,'extent_covered':covered,
+        'virtual_junction_count':sum(j['new_virtual_nodes'] for j in junctions),
+        'review_gap_m':policy.connector_cap_m,'large_connector_count':sum(j['xyz_distance_m']>policy.connector_cap_m for j in junctions)}

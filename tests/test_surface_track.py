@@ -2,7 +2,7 @@
 import copy
 import unittest
 import numpy as np
-from test_dominant_observed_branch import fixture, window
+from test_dominant_observed_branch import fixture, window, dense_path
 from dominant_observed_branch import solve_dominant_branch
 from horizontal_surface_link import horizontal_path_observations
 from observed_surface_graph import build_surface_graph
@@ -12,7 +12,7 @@ from surface_track_handoff import confidence_crossover, select_handoff, infer_mi
 def scene(paths_by_s, levels=(.2, .4, .6, .8), horizontal=None):
     profiles, inventories = {}, []
     for s, paths in paths_by_s.items():
-        p, uz, branches = fixture(paths)
+        p, uz, branches = fixture([dense_path(p) for p in paths])
         profiles[s] = (p, uz, branches)
         inventories.append(dict(s=s, branches=branches))
     if horizontal is None:
@@ -84,7 +84,7 @@ class SurfaceTrackTests(unittest.TestCase):
         self.assertEqual(len(graph['links']), 0)
 
     def test_shape_similarity_without_track_link_is_not_detail_support(self):
-        p, uz, b = fixture([[[0, 0], [.01, .5], [0, 1]]])
+        p, uz, b = fixture([dense_path([[0, 0], [.01, .5], [0, 1]])])
         result = solve_dominant_branch(p, uz, window(), neighbors=[dict(s=.9, branches=b)])
         self.assertEqual(result['selection']['selected']['neighbor_detail_repeat_count'], 0)
 
@@ -113,10 +113,11 @@ class CrossoverTests(unittest.TestCase):
         p, uz, branches = profiles[0.]
         before = p.nodes.copy()
         result = solve_dominant_branch(p, uz, branches=branches, surface_graph=graph, target_s=0.)
-        self.assertAlmostEqual(result['inferred_length_m'], .35)
+        self.assertEqual(result['inferred_length_m'], 0.)
+        self.assertLessEqual(result['curve_uz'][:,1].max(),.55)
         np.testing.assert_array_equal(p.nodes, before)
         observed = [e for e in result['path_edges'] if e['source'].startswith('OBSERVED')]
-        self.assertEqual(observed[0]['points_uz'], [[.02, 0.], [.02, .55]])
+        np.testing.assert_allclose([observed[0]['points_uz'][0],observed[-1]['points_uz'][1]], [[.02,0.],[.02,.55]])
 
     def test_parallel_edges_find_constrained_interior_junction(self):
         from backtracking_junction import search_backtracking_junction
@@ -145,11 +146,11 @@ class CrossoverTests(unittest.TestCase):
                              if e['source'].endswith('INFERRED')))
 
     def test_crossover_junction_is_interior_and_enters_final_route(self):
-        p, uz, branches = fixture([[[0, 0], [.04, .8]], [[.04, .2], [0, 1]]])
+        p, uz, branches = fixture([dense_path(p) for p in [[[0, 0], [.04, .8]], [[.04, .2], [0, 1]]]])
         # Same-track neighboring geometry carries A below, B above the crossing.
         neighbor = [[0, 0], [.025, .5], [0, 1]]
-        profiles = [dict(s=-1., branches=fixture([neighbor])[2]), dict(s=0., branches=branches),
-                    dict(s=1., branches=fixture([neighbor])[2])]
+        profiles = [dict(s=-1., branches=fixture([dense_path(neighbor)])[2]), dict(s=0., branches=branches),
+                    dict(s=1., branches=fixture([dense_path(neighbor)])[2])]
         horizontal = []
         for z in (.1, .2, .3, .4, .6, .7, .8, .9):
             u = .05*z if z < .5 else .05*(1-z)
@@ -159,7 +160,7 @@ class CrossoverTests(unittest.TestCase):
         result = solve_dominant_branch(p, uz, window(), branches=branches, surface_graph=graph, target_s=0.)
         self.assertEqual(result['branch_switch_count'], 1)
         self.assertEqual(result['junction']['junction_type'], 'REAL_INTERSECTION')
-        self.assertAlmostEqual(result['junction']['a_point_uz'][1], .5)
+        self.assertAlmostEqual(result['junction']['a_point_uz'][1], .5, places=5)
         ids = [e['branch_id'] for e in result['path_edges'] if e['source'].startswith('OBSERVED')]
         self.assertEqual(len(list(dict.fromkeys(ids))), 2)
         self.assertEqual(result['inferred_length_m'], 0.)

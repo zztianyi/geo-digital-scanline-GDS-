@@ -1,86 +1,65 @@
-"""Regressions for continuing past the end of a locally selected branch."""
+"""Geometry search stays exact; assembly now requires reliable evidence."""
 import unittest
 import numpy as np
 from test_dominant_observed_branch import fixture
+from test_absolute_sweet_zone import line,supported_graph
 from dominant_observed_branch import solve_dominant_branch
-from observed_surface_graph import build_surface_graph
+from main_track_assembly import _nearest_join,_splice
 
 
 class MainTrackAssemblyTests(unittest.TestCase):
-    def solve(self, paths):
-        profile, uz, branches = fixture(paths)
-        graph = build_surface_graph([dict(s=0., branches=branches)])
-        before = profile.nodes.copy()
-        result = solve_dominant_branch(profile, uz, branches=branches, surface_graph=graph, target_s=0.)
-        np.testing.assert_array_equal(profile.nodes, before)
-        return result, profile, uz
+    def solve(self,paths):
+        p,uz,bs=fixture(paths)
+        before=p.nodes.copy()
+        result=solve_dominant_branch(p,uz,branches=bs,surface_graph=supported_graph(bs),target_s=0.)
+        np.testing.assert_array_equal(p.nodes,before)
+        return result,p,uz
 
-    def test_three_different_tracks_continue_across_two_gaps(self):
-        result, _, _ = self.solve([[[0, 0], [0, 1]], [[0, 1.02], [0, 2.02]],
-                                   [[0, 2.04], [0, 3.04]]])
-        self.assertAlmostEqual(result['curve_uz'][:, 1].min(), 0.)
-        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 3.04)
-        self.assertEqual(result['branch_switch_count'], 2)
-        self.assertAlmostEqual(result['connector_length_m'], .04)
-        self.assertEqual(result['inferred_length_m'], 0.)
-        self.assertEqual({e['branch_id'] for e in result['path_edges'] if e['source'].startswith('OBSERVED')}, {0, 1, 2})
+    def test_three_tracks_continue_across_two_small_gaps(self):
+        r,_,_=self.solve([line(0,0,1),line(0,1.004,2.004),line(0,2.008,3.008)])
+        self.assertEqual(r['branch_switch_count'],2)
+        self.assertAlmostEqual(r['connector_length_m'],.008)
+        self.assertAlmostEqual(r['curve_uz'][:,1].max(),3.008)
 
-    def test_intersection_is_used_and_observed_edges_keep_provenance(self):
-        result, profile, uz = self.solve([[[0, 0], [.04, .8]], [[.04, .2], [0, 1]]])
-        self.assertEqual(result['branch_switch_count'], 1)
-        self.assertAlmostEqual(result['connector_length_m'], 0., places=9)
-        self.assertAlmostEqual(result['junction']['a_point_uz'][1], .5)
-        for edge in result['path_edges']:
-            if not edge['source'].startswith('OBSERVED'):
-                self.assertIsNone(edge['face_id'])
-                continue
-            a, b = uz[edge['node_ids']]
-            np.testing.assert_allclose(edge['points_uz'], [a+t*(b-a) for t in (edge['t0'], edge['t1'])])
-            self.assertEqual(edge['source_face_ids'], profile.source_face_ids[edge['edge_id']])
+    def test_long_gaps_remain_unresolved(self):
+        r,_,_=self.solve([line(0,0,1),line(0,1.02,2.02)])
+        self.assertEqual(r['branch_switch_count'],0)
+        self.assertEqual(r['status'],'UNRESOLVED')
+        self.assertIn('LONG_GAP_UNRESOLVED',r['unresolved_reasons'])
 
-    def test_fold_survives_connection_to_next_region(self):
-        fold = [[0, 0], [.1, .6], [.2, .4], [0, 1]]
-        result, _, _ = self.solve([fold, [[0, 1.02], [0, 2]]])
-        self.assertEqual(result['branch_switch_count'], 1)
-        self.assertTrue(np.any(np.diff(result['curve_uz'][:, 1]) < 0))
-        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 2.)
+    def test_intersection_search_preserves_source_geometry(self):
+        p,uz,b=fixture([[[0,0],[.04,.8]],[[.04,.2],[0,1]]])
+        j=_nearest_join(b[0]['records'],b[1]['records'],[0,.8],(np.inf,-np.inf),'upper')
+        self.assertAlmostEqual(j['distance_m'],0.)
+        self.assertAlmostEqual(j['a_point_uz'][1],.5)
+        for r in _splice(b[0]['records'],b[1]['records'],j):
+            if r['source'].startswith('OBSERVED'):
+                a,c=uz[r['node_ids']]
+                np.testing.assert_allclose(r['points_uz'],[a+t*(c-a) for t in (r['t0'],r['t1'])])
+                self.assertEqual(r['source_face_ids'],p.source_face_ids[r['edge_id']])
+            else:self.assertIsNone(r['face_id'])
 
-    def test_parallel_alternative_is_not_a_reason_to_leave_complete_branch(self):
-        result, _, _ = self.solve([[[0, 0], [0, 2]], [[.02, .5], [.02, 1.5]]])
-        self.assertEqual(result['branch_switch_count'], 0)
-        np.testing.assert_array_equal(result['curve_uz'], [[0, 0], [0, 2]])
+    def test_earlier_intersection_cannot_cut_accepted_fold(self):
+        _,_,b=fixture([[[0,0],[0,.5],[2,.8],[2,.6],[1,1]],[[-.1,.4],[.1,.4],[.1,2]]])
+        j=_nearest_join(b[0]['records'],b[1]['records'],[0,1],(np.inf,-np.inf),'upper')
+        route=_splice(b[0]['records'],b[1]['records'],j)
+        points=np.array([route[0]['points_uz'][0]]+[r['points_uz'][1] for r in route])
+        for point in ([2,.8],[2,.6]): self.assertTrue(np.any(np.all(np.isclose(points,point),axis=1)))
 
-    def test_can_extend_both_ends_from_disjoint_portions_of_another_branch(self):
-        # First branch wins the support-free ranking by its extra folded length.
-        result, _, _ = self.solve([[[0, .2], [.2, .8], [-.2, .4], [0, .8]],
-                                   [[0, 0], [0, 1]]])
-        self.assertAlmostEqual(result['curve_uz'][:, 1].min(), 0.)
-        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 1.)
-        self.assertGreaterEqual(result['branch_switch_count'], 2)
-        intervals = {}
-        for edge in result['path_edges']:
-            if edge['source'].startswith('OBSERVED'):
-                intervals.setdefault(edge['edge_id'], []).append(sorted((edge['t0'], edge['t1'])))
-        for pieces in intervals.values():
-            pieces.sort()
-            self.assertTrue(all(a[1] <= b[0]+1e-9 for a, b in zip(pieces, pieces[1:])))
+    def test_parallel_alternative_keeps_current_when_evidence_tied(self):
+        r,_,_=self.solve([line(0,0,2),line(.02,.5,1.5)])
+        self.assertEqual(r['branch_switch_count'],0)
+        self.assertTrue(r['selection']['ambiguous'])
 
-    def test_earlier_intersection_cannot_cut_away_an_accepted_fold(self):
-        result, _, _ = self.solve([[[0, 0], [0, .5], [2, .8], [2, .6], [1, 1]],
-                                   [[-.1, .4], [.1, .4], [.1, 2]]])
-        points = result['curve_uz']
-        self.assertTrue(np.any(np.all(np.isclose(points, [2, .8]), axis=1)))
-        self.assertTrue(np.any(np.all(np.isclose(points, [2, .6]), axis=1)))
-        self.assertAlmostEqual(points[:, 1].max(), 2.)
+    def test_short_fold_is_rejected_instead_of_creating_A_B_A(self):
+        r,_,_=self.solve([[[0,.2],[.2,.8],[-.2,.4],[0,.8]],line(.001,0,1)])
+        self.assertEqual(r['branch_switch_count'],0)
+        self.assertNotIn(0,r['route_branch_sequence'])
 
-    def test_same_branch_continuation_is_not_an_extra_branch_switch(self):
-        result, _, _ = self.solve([[[-10, 0], [-10, .9], [0, .9], [0, 1]],
-                                   [[5, .5], [5, 3], [.1, 1.1], [.2, 2]]])
-        self.assertEqual(result['route_branch_sequence'], [0, 1])
-        self.assertEqual(result['branch_switch_count'], 1)
-        self.assertGreaterEqual(result['junction_count'], 2)
-        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 3.)
+    def test_five_node_branch_cannot_force_long_connector(self):
+        r,_,_=self.solve([line(0,0,1),[[5,.5],[5,3],[.1,1.1],[.2,2]]])
+        self.assertEqual(r['route_branch_sequence'],[0])
+        self.assertEqual(r['candidate_z_extent'],[0.,1.])
 
 
-if __name__ == '__main__':
-    unittest.main()
+if __name__=='__main__':unittest.main()

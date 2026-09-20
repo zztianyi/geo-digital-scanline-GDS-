@@ -3,19 +3,18 @@ from __future__ import annotations
 import numpy as np
 
 
-def local_descriptors(branch):
-    points = np.asarray(branch['points_uz'])
-    arc = np.asarray(branch['arc_positions'])
-    length = max(float(arc[-1]), 1e-12)
-    mids = (arc[:-1]+arc[1:])/2
+def local_descriptors(branch, metrics=None):
+    from branch_absolute_core import branch_metrics, local_edge_scale
+    metrics = metrics or branch_metrics(branch, local_edge_scale([branch]))
+    points, arc = np.asarray(branch['points_uz']), np.asarray(branch['arc_positions'])
     vectors = np.diff(points, axis=0)
     angles = np.unwrap(np.arctan2(vectors[:, 0], vectors[:, 1]))
     curvature = np.r_[0., np.diff(angles)]
     return [dict(full_branch_arc_position=float(m), distance_to_branch_start=float(m),
-        distance_to_branch_end=float(length-m), interior_fraction=float(4*m*(length-m)/length**2),
-        local_detail_density=float(1/max(arc[i+1]-arc[i], 1e-12)),
+        distance_to_branch_end=float(arc[-1]-m),
+        in_absolute_sweet_core=bool(metrics['ASC_exists'] and metrics['ASC_start_arc'] <= m <= metrics['ASC_end_arc']),
         local_curvature_signature=float(curvature[i]), local_shape_signature=float(angles[i]))
-        for i, m in enumerate(mids)]
+        for i, m in enumerate((arc[:-1]+arc[1:])/2)]
 
 
 def _shape(branch):
@@ -52,43 +51,85 @@ def same_surface_detail(graph, node):
         neighbor_matches=matches, same_surface_neighbor_detail=matches)
 
 
-def branch_evidence(graph, node):
+def branch_evidence(graph, node, *, policy=None, edge_scale=None, target_z=None, include_detail=False):
+    from branch_absolute_core import branch_metrics, local_edge_scale
     branch = graph['nodes'][node]
+    if edge_scale is None:
+        edge_scale = local_edge_scale([b for n,b in graph['nodes'].items() if n[0]==node[0]])
+    metrics = branch_metrics(branch, edge_scale, policy, target_z=target_z)
     tid = graph['membership'][node]
-    track = next(t for t in graph['tracks'] if t['track_id'] == tid)
-    links = graph['support'].get(node, [])
-    descriptors = local_descriptors(branch)
-    lengths = np.diff(branch['arc_positions'])
-    interior = float(np.average([d['interior_fraction'] for d in descriptors], weights=lengths)) if lengths.sum() > 0 else 0.
-    sides = {int(np.sign((l['b'] if l['a'] == node else l['a'])[0]-node[0])) for l in links}
-    return dict(branch_id=branch['branch_id'], component_id=branch['component_id'], kind=branch['kind'],
-        fragment=branch, fragment_index=0, surface_track_id=tid, track_stable=track['stable'],
-        track_ambiguous=track['ambiguous'], cross_slice_continuity=track['slice_count'],
-        two_sided_support={-1, 1}.issubset(sides), observed_coverage=1.,
-        full_arc_length=branch['full_arc_length'], interior_score=interior,
-        detail_density=branch['detail_density'], canonical_edge_count=branch['canonical_edge_count'],
-        canonical_node_count=branch['canonical_node_count'],
-        horizontal_support=min((l['support_fraction'] for l in links), default=0.),
-        horizontal_supported_layers=len({li for l in links for li in l['levels']}),
-        continuous_H_support_run=max((l['continuous_H_support_run'] for l in links), default=0),
-        descriptors=descriptors, **same_surface_detail(graph, node))
+    track = graph.get('track_lookup', {}).get(tid)
+    if track is None:
+        track = next(t for t in graph['tracks'] if t['track_id'] == tid)
+    links = graph['support'].get(node, []) if metrics['MBG_pass'] else []
+    def active_levels(link):
+        return [li for li in link['levels'] if target_z is None or min(target_z)<=graph['level_z'][li]<=max(target_z)]
+    active = [(l,active_levels(l)) for l in links]
+    active = [(l,ls) for l,ls in active if len(ls)>=2]
+    sides = {int(np.sign((l['b'] if l['a']==node else l['a'])[0]-node[0])) for l,ls in active}
+    tier = 2 if {-1,1}.issubset(sides) else int(bool(active))
+    row = dict(metrics, component_id=branch['component_id'],kind=branch['kind'],fragment=branch,
+        fragment_index=0,surface_track_id=tid,track_stable=track['stable'],track_ambiguous=track['ambiguous'],
+        cross_slice_continuity=track['slice_count'],two_sided_support=tier==2,surface_support_tier=tier,
+        observed_coverage=1.,detail_density=branch['detail_density'],
+        horizontal_support=min((l['support_fraction'] for l,ls in active),default=0.),
+        horizontal_supported_layers=len({li for l,ls in active for li in ls}),
+        continuous_H_support_run=max((l['continuous_H_support_run'] for l,ls in active),default=0),
+        detail_evaluated=False,neighbor_detail_repeat_count=0,neighbor_detail_score=0.,neighbor_matches=[],
+        same_surface_neighbor_detail=[])
+    if include_detail and metrics['MBG_pass'] and tier:
+        row.update(same_surface_detail(graph,node),detail_evaluated=True)
+    return row
 
 
-def _rank(row):
-    return (row['two_sided_support'], row['cross_slice_continuity'], row['continuous_H_support_run'],
-            row['horizontal_support'], round(row['full_arc_length'], 6),
-            row['neighbor_detail_repeat_count'], round(row['neighbor_detail_score'], 2),
-            round(row['interior_score'], 2), row['detail_density'])
+def choose_candidate(rows, *, current_branch_id=None, policy=None, detail_loader=None):
+    """Lexicographic stages; geometry/nearest distance is deliberately absent."""
+    from branch_absolute_core import BranchPolicy
+    policy=policy or BranchPolicy()
+    rows=[dict(r,selected=False) for r in rows]
+    eligible=[r for r in rows if r['MBG_pass']]
+    for r in rows:
+        r['reason']='PASS_MINIMUM_BRANCH_GATE' if r['MBG_pass'] else 'REJECT_SHORT_BRANCH'
+    if not eligible:
+        return dict(selected=None,candidates=rows,ambiguous=False,decision_stage='MINIMUM_BRANCH_GATE',detail_stage_comparisons=0)
+    supported=max(r['surface_support_tier'] for r in eligible)
+    for r in eligible:
+        if r['surface_support_tier']<supported:
+            r['reason']='REJECT_SURFACE_EVIDENCE'
+    contenders=[r for r in eligible if r['surface_support_tier']==supported]
+    stage='H_V_SURFACE_EVIDENCE'; detail_count=0
+    if len(contenders)>1:
+        best=max(r['target_region_in_ASC_fraction'] for r in contenders)
+        for r in contenders:
+            if r['target_region_in_ASC_fraction']<best-policy.core_tie_tolerance:
+                r['reason']='PREFER_ABSOLUTE_SWEET_CORE'
+        contenders=[r for r in contenders if r['target_region_in_ASC_fraction']>=best-policy.core_tie_tolerance]
+        stage='ABSOLUTE_SWEET_CORE'
+    if len(contenders)>1 and supported and all(r['target_region_in_ASC_fraction']>0 for r in contenders):
+        for r in contenders:
+            if detail_loader is not None:
+                r.update(detail_loader(r))
+                r['detail_evaluated']=True
+        detail_count=len(contenders)
+        best=max(r.get('neighbor_detail_score',0.) for r in contenders)
+        contenders=[r for r in contenders if r.get('neighbor_detail_score',0.)>=best-policy.detail_tie_tolerance]
+        stage='SAME_SURFACE_DETAIL'
+    comparison_ambiguous=len(contenders)>1 or not supported
+    current=next((r for r in contenders if r['branch_id']==current_branch_id),None)
+    selected=current or min(contenders,key=lambda r:r['branch_id'])
+    ambiguous=comparison_ambiguous or bool(selected.get('track_ambiguous',False))
+    selected.update(selected=True,reason='KEEP_CURRENT_NEAR_TIE' if current and ambiguous else stage)
+    return dict(selected=selected,candidates=rows,ambiguous=ambiguous,
+        comparison_ambiguous=comparison_ambiguous,
+        decision_stage=stage,detail_stage_comparisons=detail_count,
+        legacy_endpoint_influence_on_surface_identity=0)
 
 
-def select_surface_track(graph, target_s, *, surface_track_id=None):
-    rows = [branch_evidence(graph, n) for n, b in graph['nodes'].items()
-            if n[0] == float(target_s) and b['kind'] != 'CLOSED_COMPONENT'
-            and b['full_arc_length'] > 1e-6
-            and (surface_track_id is None or graph['membership'][n] == surface_track_id)]
-    rows.sort(key=lambda r: (*_rank(r), -r['branch_id']), reverse=True)
-    ambiguous = bool(rows and rows[0]['track_ambiguous']) or (len(rows) > 1 and _rank(rows[0]) == _rank(rows[1]))
-    for i, row in enumerate(rows):
-        row.update(selected=i == 0, reason='Full observed surface continuity / same-H-path / same-track detail')
-    return dict(selected=rows[0] if rows else None, candidates=rows, ambiguous=ambiguous,
-                legacy_endpoint_influence_on_surface_identity=0)
+def select_surface_track(graph,target_s,*,surface_track_id=None,policy=None,target_z=None,current_branch_id=None):
+    from branch_absolute_core import local_edge_scale
+    nodes=[n for n,b in graph['nodes'].items() if n[0]==float(target_s) and b['kind']!='CLOSED_COMPONENT'
+           and (surface_track_id is None or graph['membership'][n]==surface_track_id)]
+    scale=local_edge_scale([b for n,b in graph['nodes'].items() if n[0]==float(target_s)])
+    rows=[branch_evidence(graph,n,policy=policy,edge_scale=scale,target_z=target_z) for n in nodes]
+    return choose_candidate(rows,current_branch_id=current_branch_id,policy=policy,
+        detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))

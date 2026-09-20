@@ -214,7 +214,7 @@ def finish(output):
                 selection_text = '没有满足边界关联条件的目标纵向分支；保持未解，不代表原始观测不存在'
             review += [f"## {row['old_category']} · {cid}", '', f'![{cid}]({path.as_posix()})', '',
               f"选择的dominant branch：{row['dominant_branch_id']}；observed覆盖：{row['observed_coverage']:.2%}；路径观测使用比例：{row['observed_geometry_fraction']:.2%}。", '',
-              f"甜区：{_fmt(row['interior_score'])}；canonical细节密度：{_fmt(row['detail_density'])} edge/m；邻纵重复细节：{row['neighbor_detail_repeat_count']}/4，评分{_fmt(row['neighbor_detail_score'])}；H支持率：{_fmt(row['horizontal_support'])}。", '',
+              f"绝对甜区弧长：{_fmt(row.get('ASC_arc_length'))} m；canonical细节密度：{_fmt(row['detail_density'])} edge/m；邻纵重复细节：{row['neighbor_detail_repeat_count']}/4，评分{_fmt(row['neighbor_detail_score'])}；H支持率：{_fmt(row['horizontal_support'])}。", '',
               f"分支切换：{row['branch_switch_count']}；junction：{junction['junction_type'] if junction else '无输出路径连接'}；回溯距离：{junction['A_backtrack_length_m'] if junction else 0:.6f}m；推断长度：{row['inferred_length_m']:.6f}m。另存诊断连接候选{len(diagnostic)}个，未自动应用。", '',
               f"选择原因：{selection_text}。其他分支可能未满足边界关联/完整性条件，或证据排序靠后；保留原始几何而不平均，详细指标见branch_reliability.csv。", '',
               f"审核状态：{row['status']}；branch歧义={row['branch_selection_ambiguous']}；联合配对歧义={row['pairing_ambiguous']}；旧端点连接已成立={row['original_endpoint_pair_connected']}。", '']

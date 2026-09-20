@@ -91,7 +91,7 @@ def render_reports(data, output):
             f"Selected surface_track_id：{result['surface_track_id']}；Selected target branch_id：{selected['branch_id'] if selected else None}。", '',
             f"同一 surface 的依据：完整 H monotone connected run 在相邻 V edge 上实际相交，并有连续多层支持；raw proximity 不计入支持。",
             f"same-H-path 连续层数：{selected['continuous_H_support_run'] if selected else 0}；同 track 相邻细节重复：{selected['neighbor_detail_repeat_count'] if selected else 0}。",
-            f"full-branch interior：{selected['interior_score'] if selected else None}；稳定：{selected['track_stable'] if selected else False}；歧义：{result['selection']['ambiguous']}。",
+            f"absolute core length (m)：{selected.get('ASC_arc_length') if selected else None}；稳定：{selected['track_stable'] if selected else False}；歧义：{result['selection']['ambiguous']}。",
             'legacy endpoint 影响 identity：No。', '',
             f"switch：{result['branch_switch_count']}；位置：{j['a_point_uz'] if j else '无'}；junction 原因：{'同 track 置信度交叉区内的最小连接' if j else '未检测到可接受的同 track 交叉换轨'}。",
             f"低可靠尾部移除长度：{result['observed_low_confidence_tail_removed']:.6f}m；synthetic connector：{result['connector_length_m']:.6f}m；inferred：{result['inferred_length_m']:.6f}m。", '',

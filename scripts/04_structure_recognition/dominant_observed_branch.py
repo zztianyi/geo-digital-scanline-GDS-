@@ -147,7 +147,8 @@ def route_result(records, *, branch_switch_count=0, junction=None):
 
 
 def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branches=None,
-                          surface_graph=None, target_s=None, surface_track_id=None, xyz_builder=None):
+                          surface_graph=None, target_s=None, surface_track_id=None, xyz_builder=None,
+                          policy=None, input_z_range=None, source_data_required=False):
     """Branch-first route. ``window`` survives only as a legacy call adapter.
 
     Full graph inputs, target slice and an optional already-identified track
@@ -155,11 +156,11 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
     ranking, branch clipping, junction search or route identity.
     """
     from surface_track_selection import select_surface_track
-    from surface_track_handoff import select_handoff, recover_missing_tails, observed_support_length
+    from surface_track_handoff import select_handoff, linked_track_samples, observed_support_length
     from main_track_assembly import assemble_main_track
     branches = extract_observed_branches(profile, node_uz) if branches is None else branches
     graph, s = _surface_context(branches, window or {}, neighbors, surface_graph, target_s)
-    selection = select_surface_track(graph, s, surface_track_id=surface_track_id)
+    selection = select_surface_track(graph, s, surface_track_id=surface_track_id, policy=policy)
     selected = selection['selected']
     common = dict(selection=selection, original_endpoint_pair_connected=False,
         analysis_only=True, observed_coordinates_overwritten=0,
@@ -168,23 +169,36 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
         observed_low_confidence_tail_removed=0., observed_high_confidence_length_preserved=0.)
     if selected is None:
         # Surface identity must be supplied/proven before missing-only inference.
-        return {**route_result([]), **common, 'status': 'UNRESOLVED_SURFACE_IDENTITY'}
+        return {**route_result([]), **common, 'status': 'UNRESOLVED', 'unresolved_reasons': ['NO_RELIABLE_SURFACE_BRANCH']}
     common.update(route_identity=(selected['surface_track_id'], selected['branch_id']),
                   surface_track_id=selected['surface_track_id'],
                   observed_high_confidence_length_preserved=observed_support_length(graph, s, selected['fragment']['records']))
-    route = select_handoff(graph, (s, selected['branch_id']))
+    route = select_handoff(graph, (s, selected['branch_id']), policy=policy, surface_track_id=surface_track_id)
     seed = route if route is not None else route_result([dict(r) for r in selected['fragment']['records']])
     eligible = branches if surface_track_id is None else [b for b in branches
         if graph['membership'].get((s, b['branch_id'])) == surface_track_id]
-    assembled = assemble_main_track(eligible, seed, anchor_branch_id=selected['branch_id'])
-    if assembled['branch_switch_count']:
-        tids = list(dict.fromkeys(graph['membership'][(s, bid)] for bid in assembled['route_branch_sequence']))
-        return {**common, **assembled, 'status': 'ASSEMBLED_MAIN_TRACK',
-            'anchor_identity': common['route_identity'], 'surface_track_ids': tids,
-            'observed_high_confidence_length_preserved': observed_support_length(graph, s, assembled['path_edges']),
-            'confidence_crossover_junction_count': int(route is not None)}
-    recovered = recover_missing_tails(graph, (s, selected['branch_id']), xyz_builder=xyz_builder)
-    if recovered is not None:
-        return {**common, **recovered, 'status': 'PRESERVED_TRACK_WITH_MISSING_TAIL_INFERENCE'}
-    return {**assembled, **common,
-            'status': 'PRESERVED_SINGLE_OBSERVED_BRANCH' if selected['track_stable'] else 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK'}
+    assembled = assemble_main_track(eligible, seed, anchor_branch_id=selected['branch_id'],
+        graph=graph, target_s=s, policy=policy)
+    reasons=list(assembled.get('unresolved_reasons',[]))
+    if selection['ambiguous'] or assembled.get('route_identity_ambiguous'):
+        reasons.append('AMBIGUOUS_SURFACE_IDENTITY')
+    samples=linked_track_samples(graph,s,selected['surface_track_id']) if graph.get('observations') else []
+    actual=assembled['route_z_extent']
+    missing=[hit for hit in samples if hit[0]<actual[0]-1e-6 or hit[0]>actual[1]+1e-6]
+    if missing: reasons.append('MISSING_SAME_SURFACE_OBSERVATIONS')
+    truncated=bool(input_z_range is not None and any(
+        b['branch_id'] in assembled.get('excluded_extent_branch_ids',[]) and
+        (b['z_range'][0]<input_z_range[0]-1e-6 or b['z_range'][1]>input_z_range[1]+1e-6) for b in branches))
+    status=('SOURCE_DATA_REQUIRED' if source_data_required else
+            'INPUT_TRUNCATION_SUSPECT' if truncated else
+            'UNRESOLVED' if reasons else 'ACCEPT_OBSERVED_BRANCH')
+    tids=list(dict.fromkeys(graph['membership'][(s,bid)] for bid in assembled['route_branch_sequence']))
+    # Automatic extrapolated tails used to bypass junction length and branch
+    # contribution checks. Keep missing parts unresolved in this observed route.
+    return {**common,**assembled,'status':status,'unresolved_reasons':sorted(set(reasons)),
+        'anchor_identity':common['route_identity'],'surface_track_ids':tids,
+        'input_truncation_suspect':truncated,'source_data_required':bool(source_data_required),
+        'observed_high_confidence_length_preserved':observed_support_length(graph,s,assembled['path_edges']),
+        'confidence_crossover_junction_count':int(route is not None),
+        'handoff_detail_comparisons':route.get('handoff_detail_comparisons',0) if route else 0,
+        'missing_same_surface_samples':missing,'missing_tail_check_available':bool(graph.get('observations'))}

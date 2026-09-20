@@ -19,6 +19,13 @@ def fixture(paths):
     return profile, uz, extract_observed_branches(profile, uz)
 
 
+def dense_path(path):
+    """Explicit synthetic canonical nodes for tests of a reliable long branch."""
+    p=np.asarray(path,dtype=float)
+    t=(np.arange(28)/28.)**1.1
+    return np.concatenate([a+t[:,None]*(b-a) for a,b in zip(p,p[1:])]+[p[-1:]])
+
+
 def window(low=(0., 0.), high=(0., 1.)):
     return dict(s=1., lower_uz=np.array(low), upper_uz=np.array(high), layers=[],
                 lower_tangent=0., upper_tangent=0.)
@@ -28,12 +35,13 @@ class DominantBranchTests(unittest.TestCase):
     def test_complete_observed_branch_is_not_averaged_or_inferred(self):
         paths = [[[0, -.2], [.01, 0], [.03, .5], [.01, 1], [0, 1.2]],
                  [[.04, 0], [.045, .5], [.04, 1]]]
+        paths=[dense_path(p) for p in paths]
         profile, uz, branches = fixture(paths)
         before = profile.nodes.copy()
         result = solve_dominant_branch(profile, uz, window())
         self.assertEqual(result['branch_switch_count'], 0)
         self.assertEqual(result['inferred_length_m'], 0.)
-        np.testing.assert_array_equal(result['curve_uz'], np.array(paths[0]))
+        np.testing.assert_array_equal(result['curve_uz'], branches[0]['points_uz'])
         np.testing.assert_array_equal(before, profile.nodes)
         self.assertFalse(result['original_endpoint_pair_connected'])
         self.assertEqual(result['observed_geometry_fraction'], 1.)
@@ -45,7 +53,7 @@ class DominantBranchTests(unittest.TestCase):
         self.assertEqual(len(branches[0]['source_segment_indices']), 6)
 
     def test_fold_in_selected_real_path_is_not_sorted_away(self):
-        profile, uz, branches = fixture([[[0, 0], [.01, .65], [.015, .45], [0, 1]]])
+        profile, uz, branches = fixture([dense_path([[0, 0], [.01, .65], [.015, .45], [0, 1]])])
         result = solve_dominant_branch(profile, uz, window())
         self.assertTrue(np.any(np.diff(result['curve_uz'][:, 1]) < 0))
         self.assertEqual(result['branch_switch_count'], 0)
@@ -70,12 +78,13 @@ class DominantBranchTests(unittest.TestCase):
                                     horizontal_path_observations(horizontal, positions), slice_order=positions)
         selected = select_dominant_branch(branches, window(), neighbors, surface_graph=graph)
         self.assertEqual(selected['selected']['branch_id'], 0)
-        self.assertEqual(selected['selected']['neighbor_detail_repeat_count'], 2)
+        self.assertFalse(selected['selected']['detail_evaluated'])
+        self.assertEqual(selected['decision_stage'],'H_V_SURFACE_EVIDENCE')
 
     def test_absent_observation_delegates_without_hidden_truth(self):
         profile = canonicalize_vertical(np.empty((0, 2, 3)), [])
         result = solve_dominant_branch(profile, np.empty((0, 2)), window())
-        self.assertEqual(result['status'], 'UNRESOLVED_SURFACE_IDENTITY')
+        self.assertEqual(result['status'], 'UNRESOLVED')
         self.assertEqual(len(result['curve_uz']), 0)
 
     def test_closed_loop_is_separate_not_an_open_dominant(self):

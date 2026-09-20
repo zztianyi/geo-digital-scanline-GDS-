@@ -2,7 +2,7 @@
 import copy
 import unittest
 import numpy as np
-from test_dominant_observed_branch import fixture, window
+from test_dominant_observed_branch import fixture, window, dense_path
 from dominant_observed_branch import solve_dominant_branch, select_dominant_branch
 from backtracking_junction import search_backtracking_junction, build_switch_route
 from test_dominant_recognition_adapter import load_recognition_kernel
@@ -10,23 +10,22 @@ from test_dominant_recognition_adapter import load_recognition_kernel
 
 class ReviewFixTests(unittest.TestCase):
     def test_complete_alternative_cannot_override_full_folded_branch(self):
-        profile, uz, branches = fixture([[[.02, .2], [.025, 0], [.03, 1], [.02, .8]],
+        profile, uz, branches = fixture([dense_path([[.02, .2], [.025, 0], [.03, 1], [.02, .8]]),
                                          np.column_stack((np.zeros(21), np.linspace(0, 1, 21)))])
         self.assertEqual(select_dominant_branch(branches, window())['selected']['branch_id'], 0)
         result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK')
+        self.assertEqual(result['status'], 'UNRESOLVED')
         self.assertEqual(result['selection']['selected']['branch_id'], 0)
         self.assertEqual(result['branch_switch_count'], 0)
 
     def test_route_cannot_omit_its_reported_dominant_identity(self):
-        profile, uz, _ = fixture([[[.04, .05], [.04, .95]], [[0, 0], [0, .55]],
-                                  [[.005, .45], [.005, 1]]])
-        result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'ASSEMBLED_MAIN_TRACK')
-        self.assertEqual(result['selection']['selected']['branch_id'], 0)
-        self.assertIn(0, [e['branch_id'] for e in result['path_edges'] if e['source'].startswith('OBSERVED')])
-        self.assertAlmostEqual(result['curve_uz'][:, 1].min(), 0.)
-        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 1.)
+        paths=[dense_path(p) for p in [[[.04,.05],[.04,.95]],[[0,0],[0,.55]],[[.005,.45],[.005,1]]]]
+        profile,uz,branches=fixture(paths)
+        result=solve_dominant_branch(profile,uz,window())
+        self.assertEqual(result['status'],'UNRESOLVED')
+        selected=result['selection']['selected']['branch_id']
+        self.assertIn(selected,[e['branch_id'] for e in result['path_edges'] if e['source'].startswith('OBSERVED')])
+        self.assertEqual(result['connector_length_m'],0.)
 
     def test_right_hand_dominant_is_labelled_by_identity(self):
         _, _, branches = fixture([[[0, 0], [.04, .7]], [[.04, .3], [0, 1]]])
