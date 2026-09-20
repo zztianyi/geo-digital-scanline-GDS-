@@ -47,8 +47,19 @@ def verify_coordinates(profile, uz, result):
     for r in result['path_edges']:
         if r['source'].startswith('OBSERVED') and (not sequence or sequence[-1] != r['branch_id']):
             sequence.append(r['branch_id'])
-    if len(sequence) > 2 or result['branch_switch_count'] > 1:
-        raise AssertionError('Multiple branch handoffs')
+    if len(sequence)-1 != result['branch_switch_count'] and sequence:
+        raise AssertionError('Reported handoffs do not match the actual path')
+    for a, b in zip(result['path_edges'], result['path_edges'][1:]):
+        for field in ('points_uz', 'points_xyz'):
+            np.testing.assert_allclose(a[field][1], b[field][0], atol=2e-8, rtol=0)
+    used = {}
+    for r in result['path_edges']:
+        if r['source'].startswith('OBSERVED'):
+            used.setdefault(r['edge_id'], []).append(sorted((r['t0'], r['t1'])))
+    for intervals in used.values():
+        intervals.sort()
+        if any(a[1] > b[0]+1e-9 for a, b in zip(intervals, intervals[1:])):
+            raise AssertionError('An observed edge interval was traversed twice')
     return len(sequence)
 
 
@@ -260,9 +271,13 @@ def run(args):
         complete_observed_track_preserved_count=sum(r['status'] == 'PRESERVED_COMPLETE_OBSERVED' for r in unique),
         complete_observed_track_wrongly_replaced_count=None,
         stable_track_wrong_replacement_note='No independently labelled real-case identity truth; not equated to zero.',
-        branch_switch_count=sum(r['branch_switch_count'] for r in unique), A_B_A_count=0,
+        branch_switch_count=sum(r['branch_switch_count'] for r in unique),
+        A_B_A_count=sum(a == c and a != b for r in unique
+            for a, b, c in zip(r.get('route_branch_sequence', []), r.get('route_branch_sequence', [])[1:], r.get('route_branch_sequence', [])[2:])),
+        branch_reentry_note='Disjoint portions may reuse a branch ID; repeated observed edge intervals are forbidden.',
         confidence_crossover_junction_count=sum(r['confidence_crossover_junction_count'] for r in unique),
-        endpoint_junction_count=sum(r['junction'] is not None and r['junction']['junction_type'] == 'ENDPOINT_CONNECTOR' for r in unique),
+        endpoint_junction_count=sum(j['junction_type'] == 'ENDPOINT_CONNECTOR' for r in unique
+            for j in r.get('junctions', [r['junction']] if r.get('junction') else [])),
         virtual_junction_count=sum(r['virtual_junction_count'] for r in unique),
         synthetic_connector_length=sum(r['connector_length_m'] for r in unique),
         inferred_geometry_length=sum(r['inferred_length_m'] for r in unique),

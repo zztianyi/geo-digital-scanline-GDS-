@@ -156,6 +156,7 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
     """
     from surface_track_selection import select_surface_track
     from surface_track_handoff import select_handoff, recover_missing_tails, observed_support_length
+    from main_track_assembly import assemble_main_track
     branches = extract_observed_branches(profile, node_uz) if branches is None else branches
     graph, s = _surface_context(branches, window or {}, neighbors, surface_graph, target_s)
     selection = select_surface_track(graph, s, surface_track_id=surface_track_id)
@@ -172,10 +173,18 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
                   surface_track_id=selected['surface_track_id'],
                   observed_high_confidence_length_preserved=observed_support_length(graph, s, selected['fragment']['records']))
     route = select_handoff(graph, (s, selected['branch_id']))
-    if route is not None:
-        return {**common, **route, 'status': 'PRESERVED_TRACK_CONFIDENCE_HANDOFF'}
+    seed = route if route is not None else route_result([dict(r) for r in selected['fragment']['records']])
+    eligible = branches if surface_track_id is None else [b for b in branches
+        if graph['membership'].get((s, b['branch_id'])) == surface_track_id]
+    assembled = assemble_main_track(eligible, seed, anchor_branch_id=selected['branch_id'])
+    if assembled['branch_switch_count']:
+        tids = list(dict.fromkeys(graph['membership'][(s, bid)] for bid in assembled['route_branch_sequence']))
+        return {**common, **assembled, 'status': 'ASSEMBLED_MAIN_TRACK',
+            'anchor_identity': common['route_identity'], 'surface_track_ids': tids,
+            'observed_high_confidence_length_preserved': observed_support_length(graph, s, assembled['path_edges']),
+            'confidence_crossover_junction_count': int(route is not None)}
     recovered = recover_missing_tails(graph, (s, selected['branch_id']), xyz_builder=xyz_builder)
     if recovered is not None:
         return {**common, **recovered, 'status': 'PRESERVED_TRACK_WITH_MISSING_TAIL_INFERENCE'}
-    return {**route_result([dict(r) for r in selected['fragment']['records']]), **common,
-            'status': 'PRESERVED_COMPLETE_OBSERVED' if selected['track_stable'] else 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK'}
+    return {**assembled, **common,
+            'status': 'PRESERVED_SINGLE_OBSERVED_BRANCH' if selected['track_stable'] else 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK'}

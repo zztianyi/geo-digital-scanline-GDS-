@@ -1,4 +1,4 @@
-"""A single evidence-led handoff, then identity-locked missing-only inference."""
+"""One local confidence handoff; whole-profile continuation is handled outside."""
 from __future__ import annotations
 import numpy as np
 from horizontal_surface_link import branch_crossings, associate_crossing
@@ -75,6 +75,8 @@ def select_handoff(graph, selected_node):
                   and graph['membership'][n] == tid and b['kind'] == 'OPEN_SURFACE_BRANCH']
     levels = sorted(set(graph['level_z'].values()))
     if len(candidates) < 2 or len(levels) < 4:
+        # No local same-track crossover. This is NOT a whole-profile stop:
+        # solve_dominant_branch continues with main_track_assembly afterwards.
         return None
     support = {n: track_confidence(graph, n, levels) for n in candidates}
     routes = []

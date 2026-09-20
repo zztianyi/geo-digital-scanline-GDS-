@@ -22,9 +22,11 @@ class ReviewFixTests(unittest.TestCase):
         profile, uz, _ = fixture([[[.04, .05], [.04, .95]], [[0, 0], [0, .55]],
                                   [[.005, .45], [.005, 1]]])
         result = solve_dominant_branch(profile, uz, window())
-        self.assertEqual(result['status'], 'PRESERVED_OBSERVED_UNCONFIRMED_TRACK')
+        self.assertEqual(result['status'], 'ASSEMBLED_MAIN_TRACK')
         self.assertEqual(result['selection']['selected']['branch_id'], 0)
-        self.assertEqual(result['branch_switch_count'], 0)
+        self.assertIn(0, [e['branch_id'] for e in result['path_edges'] if e['source'].startswith('OBSERVED')])
+        self.assertAlmostEqual(result['curve_uz'][:, 1].min(), 0.)
+        self.assertAlmostEqual(result['curve_uz'][:, 1].max(), 1.)
 
     def test_right_hand_dominant_is_labelled_by_identity(self):
         _, _, branches = fixture([[[0, 0], [.04, .7]], [[.04, .3], [0, 1]]])
