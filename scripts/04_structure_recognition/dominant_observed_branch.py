@@ -156,7 +156,7 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
     ranking, branch clipping, junction search or route identity.
     """
     from surface_track_selection import select_surface_track
-    from surface_track_handoff import select_handoff, linked_track_samples, observed_support_length
+    from surface_track_handoff import linked_track_samples, observed_support_length
     from main_track_assembly import assemble_main_track
     branches = extract_observed_branches(profile, node_uz) if branches is None else branches
     graph, s = _surface_context(branches, window or {}, neighbors, surface_graph, target_s)
@@ -173,8 +173,9 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
     common.update(route_identity=(selected['surface_track_id'], selected['branch_id']),
                   surface_track_id=selected['surface_track_id'],
                   observed_high_confidence_length_preserved=observed_support_length(graph, s, selected['fragment']['records']))
-    route = select_handoff(graph, (s, selected['branch_id']), policy=policy, surface_track_id=surface_track_id)
-    seed = route if route is not None else route_result([dict(r) for r in selected['fragment']['records']])
+    # Assembly evaluates the initial internal transition and every subsequent
+    # frontier once. Do not run a duplicate seed-only handoff beforehand.
+    seed = route_result([dict(r) for r in selected['fragment']['records']])
     eligible = branches if surface_track_id is None else [b for b in branches
         if graph['membership'].get((s, b['branch_id'])) == surface_track_id]
     assembled = assemble_main_track(eligible, seed, anchor_branch_id=selected['branch_id'],
@@ -199,6 +200,6 @@ def solve_dominant_branch(profile, node_uz, window=None, neighbors=(), *, branch
         'anchor_identity':common['route_identity'],'surface_track_ids':tids,
         'input_truncation_suspect':truncated,'source_data_required':bool(source_data_required),
         'observed_high_confidence_length_preserved':observed_support_length(graph,s,assembled['path_edges']),
-        'confidence_crossover_junction_count':int(route is not None),
-        'handoff_detail_comparisons':route.get('handoff_detail_comparisons',0) if route else 0,
+        'confidence_crossover_junction_count':assembled.get('internal_handoff_count',0),
+        'handoff_detail_comparisons':0,
         'missing_same_surface_samples':missing,'missing_tail_check_available':bool(graph.get('observations'))}

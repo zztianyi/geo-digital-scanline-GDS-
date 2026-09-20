@@ -66,10 +66,11 @@ class AbsoluteSweetZoneTests(unittest.TestCase):
         decision = choose_candidate(rows)
         self.assertEqual(decision['selected']['branch_id'],long['branch_id'])
 
-    def test_h_support_rejects_detail_rich_wrong_surface(self):
+    def test_h_support_lowers_confidence_without_rejecting_branch(self):
         d = choose_candidate([row(0,h=0,detail=1),row(1,h=2,detail=0)])
         self.assertEqual(d['selected']['branch_id'],1)
-        self.assertEqual(d['candidates'][0]['reason'],'REJECT_SURFACE_EVIDENCE')
+        self.assertTrue(d['candidates'][0]['MBG_pass'])
+        self.assertEqual(d['candidates'][0]['reason'],'LOWER_JOINT_CONFIDENCE')
 
     def test_both_supported_sweet_zone_breaks_tie(self):
         d = choose_candidate([row(0,core=.1,detail=1),row(1,core=.8,detail=0)])

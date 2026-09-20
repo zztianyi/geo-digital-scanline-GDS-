@@ -55,7 +55,8 @@ def _cross(a, b):
     return a[..., 0]*b[..., 1]-a[..., 1]*b[..., 0]
 
 
-def _nearest_join(left, right, required, locked_range, direction):
+def _nearest_join(left, right, required, locked_range, direction, *, transition_arcs=None,
+                  protect_folds=True, preserve_extent=True):
     """Exact segment intersections and four endpoint-to-segment projections.
 
 Search all eligible edge interiors, in bounded-size arrays. Retained prefixes
@@ -69,8 +70,8 @@ No monotonic-Z requirement is imposed on the measured curves.
     # Only the current terminal is already accepted geometry. A continuation
     # may trim its tail, but cannot erase an accepted fold on the way there.
     folded_a, folded_b = np.flatnonzero(da[:, 1] < -EPS), np.flatnonzero(db[:, 1] < -EPS)
-    protected_a = ca[folded_a[-1]+1] if direction == 'upper' and len(folded_a) else 0.
-    protected_b = cb[folded_b[0]] if direction == 'lower' and len(folded_b) else cb[-1]
+    protected_a = ca[folded_a[-1]+1] if protect_folds and direction == 'upper' and len(folded_a) else 0.
+    protected_b = cb[folded_b[0]] if protect_folds and direction == 'lower' and len(folded_b) else cb[-1]
     amin, amax = np.minimum.accumulate(pa[:, 1]), np.maximum.accumulate(pa[:, 1])
     bmin = np.minimum.accumulate(pb[::-1, 1])[::-1]
     bmax = np.maximum.accumulate(pb[::-1, 1])[::-1]
@@ -98,13 +99,17 @@ No monotonic-Z requirement is imposed on the measured curves.
             # Both pieces must contribute observed geometry.
             valid = valid & (apos > EPS) & (cb[-1]-bpos > EPS)
             valid &= (apos >= protected_a-EPS) & (bpos <= protected_b+EPS)
+            if transition_arcs is not None:
+                aa,bb=transition_arcs
+                valid &= (apos>=aa[0]-EPS)&(apos<=aa[1]+EPS)&(bpos>=bb[0]-EPS)&(bpos<=bb[1]+EPS)
             lo = np.minimum(np.minimum(amin[start:end, None], qa[..., 1]),
                             np.minimum(bmin[None, 1:], qb[..., 1]))
             hi = np.maximum(np.maximum(amax[start:end, None], qa[..., 1]),
                             np.maximum(bmax[None, 1:], qb[..., 1]))
             lo, hi = np.minimum(lo, locked_range[0]), np.maximum(hi, locked_range[1])
-            valid &= (lo <= required[0]+EPS) & (hi >= required[1]-EPS)
-            valid &= (lo < required[0]-1e-6) if direction == 'lower' else (hi > required[1]+1e-6)
+            if preserve_extent:
+                valid &= (lo <= required[0]+EPS) & (hi >= required[1]-EPS)
+                valid &= (lo < required[0]-1e-6) if direction == 'lower' else (hi > required[1]+1e-6)
             if not valid.any():
                 continue
             distance = np.linalg.norm(qa-qb, axis=2)
@@ -165,8 +170,7 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
     evidence={b['branch_id']:branch_evidence(graph,(float(target_s),b['branch_id']),policy=policy,edge_scale=scale)
               if graph is not None else dict(branch_metrics(b,scale,policy),surface_support_tier=0)
               for b in branches if b['kind']!='CLOSED_COMPONENT'}
-    reliable=[b for b in branches if b['branch_id'] in evidence and evidence[b['branch_id']]['MBG_pass']
-              and (evidence[b['branch_id']]['surface_support_tier'] or b['branch_id']==anchor_branch_id)]
+    reliable=[b for b in branches if b['branch_id'] in evidence and evidence[b['branch_id']]['MBG_pass']]
     records=[dict(r) for r in initial_route['path_edges']]
     if not records:
         return {**initial_route,'branch_audit':list(evidence.values()),'unresolved_reasons':['NO_RELIABLE_BRANCH']}
@@ -176,8 +180,20 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
     if not junctions:
         records=_oriented(records)
     attempts=[]; rejections=[]; decisions=[]
+    internal_audit=list(initial_route.get('internal_handoff_audit',[]))
     blocked=set()
     while True:
+        if graph is not None and graph.get('observations'):
+            from directional_handoff import internal_handoff
+            changed,audit=internal_handoff(reliable,records,graph=graph,target_s=target_s,
+                anchor_branch_id=anchor_branch_id,policy=policy)
+            internal_audit.extend(audit)
+            if changed is not None:
+                records=changed['path_edges'];join=changed['junction']
+                if join['frontier']=='lower': junctions.insert(0,join)
+                else: junctions.append(join)
+                blocked.clear()
+                continue
         points=_points(records)
         required=[float(points[:,1].min()),float(points[:,1].max())]
         pieces=_remaining(reliable,records)
@@ -210,12 +226,19 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                 if not contribution['contribution_pass'] or row['target_region_in_ASC_fraction']<=0:
                     rejections.append(dict(branch_id=bid,frontier=direction,reason='REJECT_NO_RETAINED_CORE',**contribution))
                     continue
-                if not row['surface_support_tier']:
-                    rejections.append(dict(branch_id=bid,frontier=direction,reason='REJECT_SURFACE_EVIDENCE'))
-                    continue
                 options.append(dict(row,piece_index=index))
             attempts.append(dict(frontier=direction,current_z_range=required,extending_piece_count=len(options)))
             if not options: continue
+            if len(options)>1:
+                from directional_handoff import future_switch_cost
+                zd=-1 if direction=='lower' else 1
+                target_z=min(b['z_range'][0] for b in reliable) if zd==-1 else max(b['z_range'][1] for b in reliable)
+                for row in options:
+                    b=by_id[row['branch_id']]
+                    row.update(future_switch_cost(reliable,row['branch_id'],z_direction=zd,target_z=target_z,policy=policy),
+                        future_reliable_arc=row['ASC_supported_arc_length'] if row.get('raw_arc_evidence_available') else row['ASC_arc_length'],
+                        future_directional_extent=max(0.,zd*(b['z_range'][0 if zd==-1 else 1]-required[0 if zd==-1 else 1])),
+                        future_surface_support_span=row.get('support_s_span',0.))
             decision=choose_candidate(options,policy=policy,current_branch_id=terminal[0]['branch_id'],
                 detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
             target=decision['selected']
@@ -272,6 +295,13 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
     excluded=[bid for bid,e in evidence.items() if not e['MBG_pass'] and
               (by_id[bid]['z_range'][0]<actual[0]-1e-6 or by_id[bid]['z_range'][1]>actual[1]+1e-6)]
     return {**result,'junctions':junctions,'junction_count':len(junctions),'route_branch_sequence':sequence,
+        'internal_handoff_audit':internal_audit,
+        'directional_tail_count':sum(r['zone_count']>0 for r in internal_audit),
+        'internal_handoff_count':sum(j.get('handoff_kind')=='INTERNAL_HANDOFF' for j in junctions),
+        'internal_tail_trimmed_length':sum(j.get('internal_tail_trimmed_length',0.) for j in junctions),
+        'folded_branch_handoff_evaluated_count':sum(r['folded'] for r in internal_audit),
+        'folded_branch_handoff_accepted_count':sum(j.get('folded_branch_handoff',False) for j in junctions),
+        'future_switch_avoided_count':sum(max(0,j.get('future_switch_alternative_estimate',0)-j.get('future_switch_estimate_after',0)) for j in junctions),
         'branch_audit':list(evidence.values()),'continuation_attempts':attempts,'continuation_decisions':decisions,
         'route_contribution_budgets':route_budgets(records,by_id,evidence,policy),
         'route_identity_ambiguous':any(evidence[bid].get('track_ambiguous',False) for bid in sequence),

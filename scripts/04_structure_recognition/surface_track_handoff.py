@@ -89,61 +89,20 @@ def observed_support_length(graph, target_s, records):
 
 
 def select_handoff(graph,selected_node,*,policy=None,surface_track_id=None):
-    from branch_absolute_core import BranchPolicy,local_edge_scale,contribution_metrics,connector_gate,route_budgets
-    from surface_track_selection import branch_evidence,choose_candidate,same_surface_detail
-    policy=policy or BranchPolicy()
-    nodes=[n for n,b in graph['nodes'].items() if n[0]==selected_node[0] and b['kind']=='OPEN_SURFACE_BRANCH']
-    scale=local_edge_scale([graph['nodes'][n] for n in nodes])
-    evidence={n:branch_evidence(graph,n,policy=policy,edge_scale=scale) for n in nodes}
-    candidates=[n for n in nodes if evidence[n]['MBG_pass'] and evidence[n]['surface_support_tier']
-                and (surface_track_id is None or graph['membership'][n]==surface_track_id)]
-    levels=sorted(set(graph['level_z'].values()))
-    if selected_node not in candidates or len(candidates)<2 or len(levels)<4: return None
-    support={n:track_confidence(graph,n,levels,policy=policy,edge_scale=scale) for n in candidates}
-    options=[]
-    for other in candidates:
-        if other==selected_node: continue
-        for a_node,b_node in ((selected_node,other),(other,selected_node)):
-            interval=confidence_crossover(levels,support[a_node],support[b_node])
-            if interval is None: continue
-            # Compare against the incumbent over the region the other branch
-            # would supply. The crossing interval alone may contain only one H
-            # sample on each side of an otherwise well supported transition.
-            branch=graph['nodes'][other]
-            mid=float(np.mean(interval))
-            region=(branch['z_range'][0],mid) if other==a_node else (mid,branch['z_range'][1])
-            pair=[branch_evidence(graph,n,policy=policy,edge_scale=scale,target_z=region) for n in (selected_node,other)]
-            regional=choose_candidate(pair,current_branch_id=selected_node[1],policy=policy,
-                detail_loader=lambda r:same_surface_detail(graph,(selected_node[0],r['branch_id'])))
-            row=regional['selected']
-            crossing=branch_evidence(graph,other,policy=policy,edge_scale=scale,target_z=interval)
-            if row['branch_id']!=other[1] or regional['comparison_ambiguous'] or crossing['target_region_in_ASC_fraction']<=0: continue
-            options.append(dict(row,a_node=a_node,b_node=b_node,interval=interval,
-                handoff_detail_comparisons=regional['detail_stage_comparisons']))
-    if not options: return None
-    decision=choose_candidate(options,policy=policy,
-        detail_loader=lambda r:same_surface_detail(graph,(selected_node[0],r['branch_id'])))
-    if decision['comparison_ambiguous']: return None
-    choice=decision['selected']; a_node,b_node=choice['a_node'],choice['b_node']
-    a,b=_oriented(graph['nodes'][a_node]),_oriented(graph['nodes'][b_node])
-    if np.any(np.diff(a['points_uz'][:,1])<-1e-9) or np.any(np.diff(b['points_uz'][:,1])<-1e-9): return None
-    # Only now, for a fixed evidenced pair, may geometry choose a junction.
-    junctions=search_backtracking_junction(a,b,transition_interval=choice['interval'],maximum_distance=policy.connector_cap_m)
-    routes=[]
-    for junction in junctions:
-        route=build_switch_route(a,b,junction,dominant_branch_id=selected_node[1])
-        contributions={n:contribution_metrics(graph['nodes'][n],route['path_edges'],evidence[n]) for n in (a_node,b_node)}
-        other=b_node if a_node==selected_node else a_node
-        gate=connector_gate(junction['xyz_distance_m'],contributions[other]['observed_new_length_m'],policy)
-        budgets=route_budgets(route['path_edges'],{n[1]:graph['nodes'][n] for n in (a_node,b_node)},
-                              {n[1]:evidence[n] for n in (a_node,b_node)},policy)
-        if not gate['accepted'] or not all(c['contribution_pass'] for c in contributions.values()) or not all(b['accepted'] for b in budgets): continue
-        junction.update(confidence_crossover_interval=choice['interval'],in_confidence_crossover=True,
-            from_branch_id=a_node[1],to_branch_id=b_node[1],**gate,**contributions[other])
-        route.update(confidence_crossover_junction_count=1,junctions=[junction],
-            handoff_detail_comparisons=choice['handoff_detail_comparisons']+decision['detail_stage_comparisons'])
-        routes.append((junction['xyz_distance_m'],route))
-    return min(routes,key=lambda r:r[0])[1] if routes else None
+    """Arc-ordered internal transition; folded branches remain eligible."""
+    from directional_handoff import internal_handoff
+    from main_track_assembly import _oriented
+    from dominant_observed_branch import route_result
+    branches=[b for n,b in graph['nodes'].items() if n[0]==selected_node[0]
+              and b['kind']!='CLOSED_COMPONENT'
+              and (surface_track_id is None or graph['membership'][n]==surface_track_id)]
+    records=_oriented(graph['nodes'][selected_node]['records'])
+    changed,audit=internal_handoff(branches,records,graph=graph,target_s=selected_node[0],
+        anchor_branch_id=selected_node[1],policy=policy)
+    if changed is None: return None
+    join=changed['junction']
+    return dict(route_result(changed['path_edges'],branch_switch_count=1,junction=join),
+        junctions=[join],internal_handoff_audit=audit,handoff_detail_comparisons=0)
 
 
 def linked_track_samples(graph, target_s, track_id):

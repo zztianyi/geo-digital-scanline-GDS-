@@ -77,6 +77,8 @@ def branch_evidence(graph, node, *, policy=None, edge_scale=None, target_z=None,
         continuous_H_support_run=max((l['continuous_H_support_run'] for l,ls in active),default=0),
         detail_evaluated=False,neighbor_detail_repeat_count=0,neighbor_detail_score=0.,neighbor_matches=[],
         same_surface_neighbor_detail=[])
+    from joint_surface_consensus import joint_surface_summary
+    row.update(joint_surface_summary(graph, node, target_z=target_z, metrics=metrics))
     if include_detail and metrics['MBG_pass'] and tier:
         row.update(same_surface_detail(graph,node),detail_evaluated=True)
     return row
@@ -93,11 +95,22 @@ def choose_candidate(rows, *, current_branch_id=None, policy=None, detail_loader
     if not eligible:
         return dict(selected=None,candidates=rows,ambiguous=False,decision_stage='MINIMUM_BRANCH_GATE',detail_stage_comparisons=0)
     supported=max(r['surface_support_tier'] for r in eligible)
-    for r in eligible:
-        if r['surface_support_tier']<supported:
-            r['reason']='REJECT_SURFACE_EVIDENCE'
-    contenders=[r for r in eligible if r['surface_support_tier']==supported]
-    stage='H_V_SURFACE_EVIDENCE'; detail_count=0
+    contenders=eligible
+    stage='JOINT_SURFACE_CONSENSUS'; detail_count=0
+    # H absence lowers confidence, but never removes an MBG-qualified branch.
+    # Compare continuous measured persistence before coarse legacy tiers.
+    if any(r.get('raw_arc_evidence_available') for r in contenders):
+        best=max(r.get('support_s_span',0.) for r in contenders)
+        if best>0:
+            keep=[r for r in contenders if r.get('support_s_span',0.)>=best-max(.025,.1*best)]
+            for r in contenders:
+                if r not in keep: r['reason']='LOWER_JOINT_PERSISTENCE'
+            contenders=keep
+    else:
+        keep=[r for r in contenders if r['surface_support_tier']==supported]
+        for r in contenders:
+            if r not in keep: r['reason']='LOWER_JOINT_CONFIDENCE'
+        contenders=keep
     if len(contenders)>1:
         best=max(r['target_region_in_ASC_fraction'] for r in contenders)
         for r in contenders:
@@ -105,6 +118,12 @@ def choose_candidate(rows, *, current_branch_id=None, policy=None, detail_loader
                 r['reason']='PREFER_ABSOLUTE_SWEET_CORE'
         contenders=[r for r in contenders if r['target_region_in_ASC_fraction']>=best-policy.core_tie_tolerance]
         stage='ABSOLUTE_SWEET_CORE'
+    if len(contenders)>1 and all('estimated_additional_switches' in r for r in contenders):
+        least=min(r['estimated_additional_switches'] for r in contenders)
+        contenders=[r for r in contenders if r['estimated_additional_switches']==least]
+        extent=max(r['future_directional_extent'] for r in contenders)
+        contenders=[r for r in contenders if r['future_directional_extent']>=extent-policy.core_tie_tolerance]
+        stage='FUTURE_SWITCH_MINIMIZATION'
     if len(contenders)>1 and supported and all(r['target_region_in_ASC_fraction']>0 for r in contenders):
         for r in contenders:
             if detail_loader is not None:

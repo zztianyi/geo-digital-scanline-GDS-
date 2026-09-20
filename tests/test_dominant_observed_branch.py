@@ -79,7 +79,7 @@ class DominantBranchTests(unittest.TestCase):
         selected = select_dominant_branch(branches, window(), neighbors, surface_graph=graph)
         self.assertEqual(selected['selected']['branch_id'], 0)
         self.assertFalse(selected['selected']['detail_evaluated'])
-        self.assertEqual(selected['decision_stage'],'H_V_SURFACE_EVIDENCE')
+        self.assertEqual(selected['decision_stage'],'JOINT_SURFACE_CONSENSUS')
 
     def test_absent_observation_delegates_without_hidden_truth(self):
         profile = canonicalize_vertical(np.empty((0, 2, 3)), [])

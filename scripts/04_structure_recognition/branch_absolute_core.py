@@ -90,6 +90,47 @@ def contribution_metrics(branch, records, metrics):
         contribution_pass=bool(metrics['MBG_pass'] and core+1e-12>=metrics['minimum_core_arc_length']))
 
 
+def directional_branch_metrics(branch, arc_position, direction, *, edge_scale,
+                               z_direction=None, frontier_z=None, support=None,
+                               alternative=None, policy=None):
+    """Remaining support along the original polyline, never accumulated |dZ|.
+
+    E_progress is diagnostic. A fold becomes a tail only with both depleted
+    directional coverage and stronger continuing surface evidence. Static ASC
+    and the branch's coordinates are untouched.
+    """
+    if direction not in (-1, 1) or z_direction not in (None, -1, 1):
+        raise ValueError('Directions must be +1 or -1')
+    arc = np.asarray(branch['arc_positions'], dtype=float)
+    z = np.asarray(branch['points_uz'])[:, 1]
+    pos = float(np.clip(arc_position, 0., arc[-1]))
+    current_z = float(np.interp(pos, arc, z))
+    forward = arc > pos+1e-9 if direction == 1 else arc < pos-1e-9
+    past = arc <= pos if direction == 1 else arc >= pos
+    if z_direction is None:
+        z_direction = 1 if (z[-1]-z[0])*direction >= 0 else -1
+    if frontier_z is None:
+        frontier_z = z_direction*max(z_direction*current_z, float(np.max(z_direction*z[past]))) if past.any() else current_z
+    length = float(arc[-1]-pos if direction == 1 else pos)
+    new_z = max(0., float(np.max(z_direction*(z[forward]-frontier_z)))) if forward.any() else 0.
+    m = branch_metrics(branch, edge_scale, policy)
+    lo, hi = (pos, arc[-1]) if direction == 1 else (0., pos)
+    core = max(0., min(hi, m['ASC_end_arc'])-max(lo, m['ASC_start_arc'])) if m['ASC_exists'] else 0.
+    support = support or {}
+    alternative = alternative or {}
+    span = float(support.get('support_s_span', 0.))
+    depleted = new_z < .5*alternative.get('Z_forward_new', 0.)
+    stronger = alternative.get('support_s_span', 0.) > max(span*1.25, span+.025)
+    state = ('DIRECTIONAL_TAIL' if depleted and stronger else
+             'DIRECTIONAL_EDGE' if core < m['minimum_core_arc_length'] or new_z <= edge_scale else 'RELIABLE_CORE')
+    return dict(N_forward=int(forward.sum()), L_forward_arc=length, Z_forward_new=new_z,
+        E_progress=new_z/length if length else 0., L_forward_ASC=core,
+        directional_state=state, arc_position=pos, direction=direction, z_direction=z_direction,
+        forward_support_slice_count=support.get('support_slice_count', 0),
+        forward_support_s_span=span, forward_support_z_span=support.get('support_z_span', 0.),
+        forward_same_H_run_levels=support.get('same_H_run_level_count', 0))
+
+
 def connector_gate(synthetic_length, observed_new_length, policy=None):
     policy=policy or BranchPolicy()
     ratio=synthetic_length/observed_new_length if observed_new_length>0 else float('inf')
