@@ -55,8 +55,29 @@ def _cross(a, b):
     return a[..., 0]*b[..., 1]-a[..., 1]*b[..., 0]
 
 
+def _terminal_core_bounds(records, branch, metrics):
+    """Limits in terminal-local arc units that keep every retained static ASC edge.
+
+    Return (largest lower cut, smallest upper cut). Endpoint guards are free
+    to change, including their folds. Source t0/t1 also handles reversed and
+    previously clipped records; no coordinates or canonical nodes are changed.
+    """
+    positions = {int(eid): i for i, eid in enumerate(branch['edge_order'])}
+    arc = np.asarray(branch['arc_positions']); offset = 0.; intervals = []
+    for record in records:
+        length = float(np.linalg.norm(np.diff(record['points_uz'], axis=0)))
+        i = positions[record['edge_id']]
+        a, b = arc[i]+np.asarray([record['t0'], record['t1']])*(arc[i+1]-arc[i])
+        low = max(min(a, b), metrics['ASC_start_arc'])
+        high = min(max(a, b), metrics['ASC_end_arc'])
+        if metrics['ASC_exists'] and high > low+EPS:
+            intervals.append(sorted(offset+(np.asarray([low, high])-a)/(b-a)*length))
+        offset += length
+    return (min(x[0] for x in intervals), max(x[1] for x in intervals)) if intervals else (offset, 0.)
+
+
 def _nearest_join(left, right, required, locked_range, direction, *, transition_arcs=None,
-                  protect_folds=True, preserve_extent=True):
+                  protect_folds=True, preserve_extent=True, terminal_core_bounds=None):
     """Exact segment intersections and four endpoint-to-segment projections.
 
 Search all eligible edge interiors, in bounded-size arrays. Retained prefixes
@@ -72,6 +93,10 @@ No monotonic-Z requirement is imposed on the measured curves.
     folded_a, folded_b = np.flatnonzero(da[:, 1] < -EPS), np.flatnonzero(db[:, 1] < -EPS)
     protected_a = ca[folded_a[-1]+1] if protect_folds and direction == 'upper' and len(folded_a) else 0.
     protected_b = cb[folded_b[0]] if protect_folds and direction == 'lower' and len(folded_b) else cb[-1]
+    if terminal_core_bounds is not None:
+        # Ordinary continuation protects the accepted ASC, not every tail fold.
+        if direction == 'upper': protected_a = terminal_core_bounds[1]
+        else: protected_b = terminal_core_bounds[0]
     amin, amax = np.minimum.accumulate(pa[:, 1]), np.maximum.accumulate(pa[:, 1])
     bmin = np.minimum.accumulate(pb[::-1, 1])[::-1]
     bmax = np.maximum.accumulate(pb[::-1, 1])[::-1]
@@ -239,47 +264,60 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                         future_reliable_arc=row['ASC_supported_arc_length'] if row.get('raw_arc_evidence_available') else row['ASC_arc_length'],
                         future_directional_extent=max(0.,zd*(b['z_range'][0 if zd==-1 else 1]-required[0 if zd==-1 else 1])),
                         future_surface_support_span=row.get('support_s_span',0.))
-            decision=choose_candidate(options,policy=policy,current_branch_id=terminal[0]['branch_id'],
-                detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
-            target=decision['selected']
-            decisions.append(dict(frontier=direction,branch_id=target['branch_id'],stage=decision['decision_stage'],
-                ambiguous=decision['ambiguous'],comparison_ambiguous=decision['comparison_ambiguous'],
-                detail_stage_comparisons=decision['detail_stage_comparisons']))
-            # Equal evidence without the current branch is an unresolved fork.
-            if decision['comparison_ambiguous'] and target['branch_id']!=terminal[0]['branch_id']:
-                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],reason='AMBIGUOUS_CONTINUATION'))
-                blocked.add(direction); continue
-            piece=pieces[target['piece_index']]
-            left,right=(piece,terminal) if direction=='lower' else (terminal,piece)
-            join=_nearest_join(left,right,required,locked_range,direction)
-            if join is None:
-                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],reason='NO_VALID_JUNCTION'))
-                blocked.add(direction); continue
-            extension=_splice(left,right,join)
-            # Use edge identity instead of splice indexes: zero-length endpoint
-            # trims can remove records and shift the synthetic record position.
-            separator=next(i for i,r in enumerate(extension) if r['source']=='TOPOLOGY_SWITCH')
-            contribution_records=extension[:separator] if direction=='lower' else extension[separator+1:]
-            contribution=contribution_metrics(by_id[target['branch_id']],contribution_records,evidence[target['branch_id']])
-            gate=connector_gate(join['xyz_distance_m'],contribution['observed_new_length_m'],policy)
-            new_records=extension+locked if direction=='lower' else locked+extension
-            budgets=route_budgets(new_records,by_id,evidence,policy)
-            budget_failure=next((b['reason'] for b in budgets if not b['accepted']),None)
-            # Any branch left between two switches must still supply a core.
-            retained_ok=all(contribution_metrics(by_id[bid],new_records,evidence[bid])['contribution_pass']
-                            for bid in {r['branch_id'] for r in new_records if r['source'].startswith('OBSERVED')})
-            if not contribution['contribution_pass'] or not retained_ok or not gate['accepted'] or budget_failure:
-                rejections.append(dict(frontier=direction,branch_id=target['branch_id'],junction=join,**contribution,
-                    **{**gate,'reason':gate['reason'] if not gate['accepted'] else budget_failure or 'REJECT_NO_RETAINED_CORE'}))
-                blocked.add(direction); continue
-            join.update(contribution,**gate,needs_manual_confirmation=False)
-            # Choices already have one fixed identity per frontier. Geometry is
-            # not compared across branches; alternate lower/upper deterministically.
-            choices.append((direction,new_records,join))
+            terminal_bid=terminal[0]['branch_id']
+            core_bounds=_terminal_core_bounds(terminal,by_id[terminal_bid],evidence[terminal_bid])
+            core_before=contribution_metrics(by_id[terminal_bid],records,evidence[terminal_bid])['retained_ASC_arc_length']
+            pending=list(options); rank=0
+            while pending:
+                decision=choose_candidate(pending,policy=policy,current_branch_id=terminal_bid,
+                    detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
+                target=decision['selected']; rank+=1
+                pending=[row for row in pending if row['piece_index']!=target['piece_index']]
+                attempt=dict(frontier=direction,branch_id=target['branch_id'],piece_index=target['piece_index'],
+                    identity_rank=rank,stage=decision['decision_stage'],ambiguous=decision['ambiguous'],
+                    comparison_ambiguous=decision['comparison_ambiguous'],
+                    detail_stage_comparisons=decision['detail_stage_comparisons'],feasibility_accepted=False)
+                decisions.append(attempt)
+                piece=pieces[target['piece_index']]
+                left,right=(piece,terminal) if direction=='lower' else (terminal,piece)
+                join=_nearest_join(left,right,required,locked_range,direction,terminal_core_bounds=core_bounds)
+                if join is None:
+                    rejections.append(dict(frontier=direction,branch_id=target['branch_id'],
+                        piece_index=target['piece_index'],identity_rank=rank,reason='NO_VALID_JUNCTION'))
+                    continue
+                extension=_splice(left,right,join)
+                separator=next(i for i,r in enumerate(extension) if r['source']=='TOPOLOGY_SWITCH')
+                contribution_records=extension[:separator] if direction=='lower' else extension[separator+1:]
+                contribution=contribution_metrics(by_id[target['branch_id']],contribution_records,evidence[target['branch_id']])
+                gate=connector_gate(join['xyz_distance_m'],contribution['observed_new_length_m'],policy)
+                new_records=extension+locked if direction=='lower' else locked+extension
+                budgets=route_budgets(new_records,by_id,evidence,policy)
+                budget_failure=next((b['reason'] for b in budgets if not b['accepted']),None)
+                retained_ok=all(contribution_metrics(by_id[bid],new_records,evidence[bid])['contribution_pass']
+                    for bid in {r['branch_id'] for r in new_records if r['source'].startswith('OBSERVED')})
+                core_after=contribution_metrics(by_id[terminal_bid],new_records,evidence[terminal_bid])['retained_ASC_arc_length']
+                core_preserved=core_after+1e-7>=core_before
+                if not contribution['contribution_pass'] or not retained_ok or not gate['accepted'] or budget_failure or not core_preserved:
+                    reason=(gate['reason'] if not gate['accepted'] else budget_failure or
+                            ('REJECT_STATIC_ASC_TRIM' if not core_preserved else 'REJECT_NO_RETAINED_CORE'))
+                    rejections.append(dict(frontier=direction,branch_id=target['branch_id'],piece_index=target['piece_index'],
+                        identity_rank=rank,junction=join,**contribution,**{**gate,'reason':reason}))
+                    continue
+                attempt['feasibility_accepted']=True
+                join.update(contribution,**gate,identity_rank=rank,identity_ambiguous=decision['ambiguous'],
+                    needs_manual_confirmation=decision['ambiguous'],terminal_ASC_before_m=core_before,
+                    terminal_ASC_after_m=core_after)
+                # A tie uses the existing deterministic identity order, remains
+                # explicitly ambiguous, and is never broken by nearest distance.
+                choices.append((direction,new_records,join))
+                break
+            else:
+                blocked.add(direction)
         if not choices: break
         direction,records,join=choices[0]
         if direction=='lower': junctions.insert(0,join)
         else: junctions.append(join)
+        blocked.clear()  # A changed route can make a previously failed frontier feasible.
         if len(junctions)>2*sum(len(b['records']) for b in reliable):
             raise RuntimeError('Non-progressing continuation')
     for r in records:
@@ -304,7 +342,8 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
         'future_switch_avoided_count':sum(max(0,j.get('future_switch_alternative_estimate',0)-j.get('future_switch_estimate_after',0)) for j in junctions),
         'branch_audit':list(evidence.values()),'continuation_attempts':attempts,'continuation_decisions':decisions,
         'route_contribution_budgets':route_budgets(records,by_id,evidence,policy),
-        'route_identity_ambiguous':any(evidence[bid].get('track_ambiguous',False) for bid in sequence),
+        'route_identity_ambiguous':any(evidence[bid].get('track_ambiguous',False) for bid in sequence)
+            or any(j.get('identity_ambiguous',False) for j in junctions),
         'continuation_rejections':rejections,'excluded_extent_branch_ids':excluded,
         'unresolved_reasons':sorted(({r['reason'] for r in rejections} if not covered else set())|({'UNCOVERED_RELIABLE_EXTENT'} if not covered else set())|
                                   ({'EXCLUDED_UNRELIABLE_EXTENT'} if excluded else set())),
