@@ -29,6 +29,7 @@ processed.ply
 *.pkl
 *.joblib
 *.npz
+!tests/fixtures/physical_topology_real_slices.npz
 *.npy
 *.vtk
 *.vtp

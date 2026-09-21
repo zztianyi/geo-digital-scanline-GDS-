@@ -5,7 +5,7 @@ endpoint encounter order; edge IDs and orientations follow first occurrence.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import operator
 from typing import Sequence
 
@@ -25,6 +25,27 @@ class CanonicalProfile:
     components: np.ndarray
     branches: list[dict]
     stats: dict
+    topology_active_edge: np.ndarray = field(init=False)
+    physical_degree: np.ndarray = field(init=False)
+    physical_components: np.ndarray = field(init=False)
+    physical_branches: list[dict] = field(init=False)
+
+    def __post_init__(self):
+        # Keep canonical incidences/chains for provenance and legacy audits.
+        # A rounded A -> A record is not a physical fork or a traversable edge.
+        self.topology_active_edge = self.edges[:, 0] != self.edges[:, 1]
+        if np.all(self.topology_active_edge):
+            self.physical_degree = self.degree.copy()
+            self.physical_components = self.components.copy()
+            self.physical_branches = self.branches
+        else:
+            (self.physical_degree, self.physical_components,
+             self.physical_branches, _) = _topology(
+                len(self.nodes), self.edges, active=self.topology_active_edge)
+
+    @property
+    def canonical_degree(self) -> np.ndarray:
+        return self.degree
 
     @property
     def lines_xyz(self) -> np.ndarray:
@@ -36,10 +57,12 @@ class CanonicalProfile:
                 for (a, b), face in zip(self.edges, self.first_face_ids)]
 
 
-def _topology(node_count, edges):
+def _topology(node_count, edges, *, active=None):
     """Linear-time components and maximal chains, splitting at degree != 2."""
     adjacency = [[] for _ in range(node_count)]
     for eid, (a, b) in enumerate(edges):
+        if active is not None and not active[eid]:
+            continue
         a, b = int(a), int(b)
         adjacency[a].append((b, eid))
         adjacency[b].append((a, eid))
@@ -86,7 +109,7 @@ def _topology(node_count, edges):
                 follow(int(node), other, eid)
     # Remaining edges belong to closed loops, including disconnected loops.
     for eid, (a, b) in enumerate(edges):
-        if not used[eid]:
+        if not used[eid] and (active is None or active[eid]):
             follow(int(a), int(b), eid)
     return degree, components, branches, component_count
 
@@ -97,7 +120,8 @@ def canonicalize_vertical(
     """Deduplicate undirected round6 edges, retaining ordered provenance.
 
     Inputs are never changed. Each unique zero-length rounded edge is retained
-    with all source provenance and contributes two canonical node incidences.
+    with all source provenance and contributes two canonical node incidences,
+    but no physical incidence. Physical chains retain original edge IDs.
     collapsed_self_edges counts raw segments whose rounded endpoints coincide;
     the raw-minus-canonical duplicate statistic counts only repeated edges.
     No tolerance beyond round6 is applied.
@@ -190,12 +214,12 @@ def endpoint_gap_diagnostics(profile: CanonicalProfile) -> list[dict]:
     Rows follow node order. Equal-distance nearest endpoints may choose either
     minimizer; distances remain exact. This function never changes geometry.
     """
-    endpoints = np.flatnonzero(profile.degree == 1)
+    endpoints = np.flatnonzero(profile.physical_degree == 1)
     if len(endpoints) < 2:
         return []
-    order = np.argsort(profile.components[endpoints], kind='stable')
+    order = np.argsort(profile.physical_components[endpoints], kind='stable')
     endpoints = endpoints[order]
-    labels = profile.components[endpoints]
+    labels = profile.physical_components[endpoints]
     starts = np.concatenate(([0], np.flatnonzero(labels[1:] != labels[:-1])+1,
                              [len(endpoints)]))
     component_count = len(starts)-1

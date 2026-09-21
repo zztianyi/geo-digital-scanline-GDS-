@@ -10,15 +10,20 @@ import numpy as np
 
 def extract_observed_branches(profile, node_uz):
     uz = np.asarray(node_uz, dtype=float)
+    # Canonical records still include degenerate edges and every source face.
+    # Only the physical graph determines candidates and fork classification.
+    degree = getattr(profile, 'physical_degree', profile.degree)
+    components = getattr(profile, 'physical_components', profile.components)
+    chains = getattr(profile, 'physical_branches', profile.branches)
     component_kind = {}
-    for node, component in enumerate(profile.components):
+    for node, component in enumerate(components):
         kind = component_kind.setdefault(int(component), 'CLOSED_COMPONENT')
-        if profile.degree[node] > 2:
+        if degree[node] > 2:
             component_kind[int(component)] = 'FORKED_COMPONENT'
-        elif profile.degree[node] != 2 and kind != 'FORKED_COMPONENT':
+        elif degree[node] != 2 and kind != 'FORKED_COMPONENT':
             component_kind[int(component)] = 'OPEN_SURFACE_BRANCH'
     result = []
-    for branch in profile.branches:
+    for branch in chains:
         order, eids = branch['nodes'], branch['edges']
         points, xyz = uz[order], profile.nodes[order]
         lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
