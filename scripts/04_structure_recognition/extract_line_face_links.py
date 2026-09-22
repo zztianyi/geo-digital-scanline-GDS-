@@ -52,8 +52,9 @@ def gather_line_data(single_res):
                 avg_z = (p1[2] + p2[2]) / 2.0
                 height = group_max_z - avg_z
                 line_segments.append((p1, p2, height))
-                if face_idx is not None:
-                    face_heights_dict[face_idx].append(height)
+                source_faces=seg[7] if len(seg)>7 else ([] if face_idx is None else [face_idx])
+                for source_face in source_faces:
+                    face_heights_dict[source_face].append(height)
     return line_segments, face_heights_dict
 
 def serial_collect_line_data(all_results):
@@ -145,4 +146,3 @@ if __name__ == "__main__":
     save_full_line_face_data(all_segments, face_heights_dict, output_path)
 
     
-

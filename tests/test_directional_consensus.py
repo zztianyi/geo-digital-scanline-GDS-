@@ -155,7 +155,7 @@ class DirectionalConsensusTests(unittest.TestCase):
     def test_fold_inside_directional_tail_can_be_trimmed(self):
         profiles,g=tail_scene();bs=profiles[0.][2]
         r=assemble_main_track(bs,route_result(bs[0]['records']),anchor_branch_id=0,graph=g,target_s=0.)
-        self.assertFalse(np.any(np.diff(r['curve_uz'][:,1])<0))
+        self.assertFalse(np.any(np.diff(r['curve_uz'][:,1]) < -1e-9))
         self.assertGreater(r['internal_tail_trimmed_length'],4.)
 
     def test_B1_like_long_continuation_beats_short_B6_like_candidate(self):

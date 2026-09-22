@@ -41,8 +41,8 @@ def gather_line_data(single_res):
                 face_idx = seg[6]
 
                 line_segments.append((p1_3d, p2_3d))
-                if face_idx is not None:
-                    face_indices.add(face_idx)
+                source_faces=seg[7] if len(seg)>7 else ([] if face_idx is None else [face_idx])
+                face_indices.update(source_faces)
 
     return line_segments, face_indices
 

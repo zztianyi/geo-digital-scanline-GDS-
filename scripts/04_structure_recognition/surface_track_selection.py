@@ -150,5 +150,29 @@ def select_surface_track(graph,target_s,*,surface_track_id=None,policy=None,targ
            and (surface_track_id is None or graph['membership'][n]==surface_track_id)]
     scale=local_edge_scale([b for n,b in graph['nodes'].items() if n[0]==float(target_s)])
     rows=[branch_evidence(graph,n,policy=policy,edge_scale=scale,target_z=target_z) for n in nodes]
-    return choose_candidate(rows,current_branch_id=current_branch_id,policy=policy,
+    decision=choose_candidate(rows,current_branch_id=current_branch_id,policy=policy,
         detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
+    context=graph.get('physical_face_context')
+    if context is None or decision['selected'] is None:return decision
+    from horizontal_surface_link import branch_crossings
+    from competitive_surface_selection import choose_successor
+    from directional_handoff import future_switch_cost
+    anchor=decision['selected']['fragment'];z=float(np.median(anchor['points_uz'][:,1]))
+    region=context._region(float(target_s),anchor,z);competing=[]
+    for row in rows:
+        b=row['fragment'];hits=branch_crossings(b,z)
+        if not hits or not row['MBG_pass']:continue
+        face=context.evidence(float(target_s),b,z,region=region)
+        inside=any(row['ASC_start_arc']<=h['arc_position']<=row['ASC_end_arc'] for h in hits)
+        reliable=[r['fragment'] for r in rows if r['MBG_pass']]
+        switches=sum(future_switch_cost(reliable,b['branch_id'],z_direction=d,
+            target_z=(min(x['z_range'][0] for x in reliable) if d<0 else max(x['z_range'][1] for x in reliable)),
+            policy=policy,reliable_entry=True)['estimated_additional_switches'] for d in (-1,1))
+        competing.append(dict(row,**face,in_ASC=inside,forward_Z_m=float(np.ptp(b['points_uz'][:,1])),
+            forward_ASC_m=row['ASC_arc_length'],minimum_switches=switches,competition_z=z))
+    if len(competing)<2:return decision
+    selected=choose_successor(competing,current_branch_id=current_branch_id)
+    selected['candidates']=rows
+    selected['physical_seed_candidates']=[{k:v for k,v in r.items() if k!='fragment'} for r in competing]
+    selected['seed_conflict_region']=region['region_id']
+    return selected

@@ -895,11 +895,23 @@ def process_single_slice_fast(res):
 
 
 def process_single_slice(res):
+    if 'surface_spine_context' in res:
+        from surface_spine_pipeline import recognize_surface_spine
+        context=res['surface_spine_context']
+        return dict(slice_key=res['slice_key'],**recognize_surface_spine(
+            context['branches'],context['graph'],float(res['slice_key']),
+            input_z_range=context.get('input_z_range')))
     return process_single_slice_fast(res)
 
 def convert_to_line_segments_format(processed_batch):
     all_line_segments_data = []
     for res in processed_batch:
+        if res.get('production_stage')=='P0_P1_P2':
+            all_line_segments_data.append(dict(slice_key=res['slice_key'],
+                line_segments=res['hanging_segments'],main_spine=res['layers']['MAIN_SPINE'],
+                side_components=res['layers']['SIDE_COMPONENTS'],
+                reconstruction=res['reconstruction'],production_stage=res['production_stage']))
+            continue
         slice_data = {}
         slice_data["slice_key"] = res.get("slice_key", None)
         slice_data["slice_angle"] = res["plane_params"]["slice_angle"]

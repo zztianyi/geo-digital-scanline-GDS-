@@ -77,7 +77,8 @@ def _terminal_core_bounds(records, branch, metrics):
 
 
 def _nearest_join(left, right, required, locked_range, direction, *, transition_arcs=None,
-                  protect_folds=True, preserve_extent=True, terminal_core_bounds=None):
+                  protect_folds=True, preserve_extent=True, terminal_core_bounds=None, prefer_early=False,
+                  allow_clipped_boundaries=False, junction_z_bounds=None):
     """Exact segment intersections and four endpoint-to-segment projections.
 
 Search all eligible edge interiors, in bounded-size arrays. Retained prefixes
@@ -85,6 +86,8 @@ and suffixes must preserve the old elevation extent and extend one frontier.
 No monotonic-Z requirement is imposed on the measured curves.
 """
     pa, pb = _points(left), _points(right)
+    xa_all=np.asarray([left[0]['points_xyz'][0]]+[r['points_xyz'][1] for r in left])
+    xb_all=np.asarray([right[0]['points_xyz'][0]]+[r['points_xyz'][1] for r in right])
     da, db = np.diff(pa, axis=0), np.diff(pb, axis=0)
     la, lb = np.linalg.norm(da, axis=1), np.linalg.norm(db, axis=1)
     ca, cb = np.r_[0., np.cumsum(la)], np.r_[0., np.cumsum(lb)]
@@ -93,10 +96,8 @@ No monotonic-Z requirement is imposed on the measured curves.
     folded_a, folded_b = np.flatnonzero(da[:, 1] < -EPS), np.flatnonzero(db[:, 1] < -EPS)
     protected_a = ca[folded_a[-1]+1] if protect_folds and direction == 'upper' and len(folded_a) else 0.
     protected_b = cb[folded_b[0]] if protect_folds and direction == 'lower' and len(folded_b) else cb[-1]
-    if terminal_core_bounds is not None:
-        # Ordinary continuation protects the accepted ASC, not every tail fold.
-        if direction == 'upper': protected_a = terminal_core_bounds[1]
-        else: protected_b = terminal_core_bounds[0]
+    # terminal_core_bounds is a legacy audit argument only. Static ASC is a
+    # reliability descriptor, never a permanent no-trim boundary (v2 P0).
     amin, amax = np.minimum.accumulate(pa[:, 1]), np.maximum.accumulate(pa[:, 1])
     bmin = np.minimum.accumulate(pb[::-1, 1])[::-1]
     bmax = np.maximum.accumulate(pb[::-1, 1])[::-1]
@@ -105,16 +106,20 @@ No monotonic-Z requirement is imposed on the measured curves.
         end = min(start+64, len(da))
         p, r = pa[start:end, None, :], da[start:end, None, :]
         q, s = pb[None, :-1, :], db[None, :, :]
-        rr, ss = np.sum(r*r, axis=2), np.sum(s*s, axis=2)
-        denominator = _cross(r, s)
-        nonparallel = np.abs(denominator) > 1e-15
-        ta = np.divide(_cross(q-p, s), denominator, out=np.zeros_like(denominator), where=nonparallel)
-        tb = np.divide(_cross(q-p, r), denominator, out=np.zeros_like(denominator), where=nonparallel)
+        xp,xq=xa_all[start:end,None,:],xb_all[None,:-1,:]
+        xr,xs=np.diff(xa_all,axis=0)[start:end,None,:],np.diff(xb_all,axis=0)[None,:,:]
+        rr,ss=np.sum(xr*xr,axis=2),np.sum(xs*xs,axis=2)
+        rs=np.sum(xr*xs,axis=2);w=xp-xq
+        rw,sw=np.sum(xr*w,axis=2),np.sum(xs*w,axis=2)
+        denominator=rr*ss-rs*rs
+        nonparallel=np.abs(denominator)>np.maximum(rr*ss*1e-14,1e-30)
+        ta=np.divide(rs*sw-ss*rw,denominator,out=np.zeros_like(denominator),where=nonparallel)
+        tb=np.divide(rr*sw-rs*rw,denominator,out=np.zeros_like(denominator),where=nonparallel)
         candidates = [(ta, tb, nonparallel & (ta >= 0) & (ta <= 1) & (tb >= 0) & (tb <= 1))]
         shape = denominator.shape
         for fixed in (0., 1.):
-            on_b = np.clip(np.sum((p+fixed*r-q)*s, axis=2)/np.maximum(ss, 1e-30), 0., 1.)
-            on_a = np.clip(np.sum((q+fixed*s-p)*r, axis=2)/np.maximum(rr, 1e-30), 0., 1.)
+            on_b = np.clip(np.sum((xp+fixed*xr-xq)*xs, axis=2)/np.maximum(ss, 1e-30), 0., 1.)
+            on_a = np.clip(np.sum((xq+fixed*xs-xp)*xr, axis=2)/np.maximum(rr, 1e-30), 0., 1.)
             candidates.extend(((np.full(shape, fixed), on_b, np.ones(shape, bool)),
                                (on_a, np.full(shape, fixed), np.ones(shape, bool))))
         for ta, tb, valid in candidates:
@@ -122,7 +127,11 @@ No monotonic-Z requirement is imposed on the measured curves.
             apos = ca[start:end, None]+ta*la[start:end, None]
             bpos = cb[None, :-1]+tb*lb[None, :]
             # Both pieces must contribute observed geometry.
-            valid = valid & (apos > EPS) & (cb[-1]-bpos > EPS)
+            if not allow_clipped_boundaries:
+                valid = valid & (apos > EPS) & (cb[-1]-bpos > EPS)
+            if junction_z_bounds is not None:
+                valid &= (qa[...,1]>=junction_z_bounds[0]-EPS)&(qa[...,1]<=junction_z_bounds[1]+EPS)
+                valid &= (qb[...,1]>=junction_z_bounds[0]-EPS)&(qb[...,1]<=junction_z_bounds[1]+EPS)
             valid &= (apos >= protected_a-EPS) & (bpos <= protected_b+EPS)
             if transition_arcs is not None:
                 aa,bb=transition_arcs
@@ -137,15 +146,16 @@ No monotonic-Z requirement is imposed on the measured curves.
                 valid &= (lo < required[0]-1e-6) if direction == 'lower' else (hi > required[1]+1e-6)
             if not valid.any():
                 continue
-            distance = np.linalg.norm(qa-qb, axis=2)
+            distance = np.linalg.norm(xp+ta[...,None]*xr-xq-tb[...,None]*xs, axis=2)
             # Coincident/intersecting geometry first; otherwise true minimum gap.
             distance_key = np.where(distance < EPS, 0., distance)
             removed = bpos if direction == 'lower' else ca[-1]-apos
             flat = np.flatnonzero(valid)
-            order = np.lexsort((flat, removed.ravel()[flat], distance_key.ravel()[flat]))
+            timing = -removed if prefer_early else removed
+            order = np.lexsort((flat, timing.ravel()[flat], distance_key.ravel()[flat]))
             k = flat[order[0]]
             i, j = np.unravel_index(k, shape)
-            rank = (float(distance_key[i, j]), float(removed[i, j]))
+            rank = (float(distance_key[i, j]), float(timing[i, j]))
             if best is None or rank < best[0]:
                 best = (rank, start+i, j, float(ta[i, j]), float(tb[i, j]), qa[i, j], qb[i, j])
     if best is None:
@@ -161,7 +171,7 @@ No monotonic-Z requirement is imposed on the measured curves.
         a_t=ta, b_t=tb, a_point_uz=qa.tolist(), b_point_uz=qb.tolist(),
         a_point_xyz=xa.tolist(), b_point_xyz=xb.tolist(), distance_m=float(np.linalg.norm(qa-qb)),
         xyz_distance_m=float(np.linalg.norm(xa-xb)), new_virtual_nodes=virtual,
-        tangent_turn_deg=turn, frontier=direction, removed_terminal_length_m=rank[1],
+        tangent_turn_deg=turn, frontier=direction, removed_terminal_length_m=abs(rank[1]),
         from_branch_id=left[i]['branch_id'], to_branch_id=right[j]['branch_id'])
 
 
@@ -208,7 +218,8 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
     internal_audit=list(initial_route.get('internal_handoff_audit',[]))
     blocked=set()
     while True:
-        if graph is not None and graph.get('observations'):
+        physical = graph is not None and graph.get('physical_face_context') is not None
+        if graph is not None and graph.get('observations') and not physical:
             from directional_handoff import internal_handoff
             changed,audit=internal_handoff(reliable,records,graph=graph,target_s=target_s,
                 anchor_branch_id=anchor_branch_id,policy=policy)
@@ -254,7 +265,12 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                 options.append(dict(row,piece_index=index))
             attempts.append(dict(frontier=direction,current_z_range=required,extending_piece_count=len(options)))
             if not options: continue
-            if len(options)>1:
+            if physical:
+                from competitive_surface_selection import successor_evidence
+                options=[successor_evidence(row,by_id[row['branch_id']],terminal,graph=graph,
+                    target_s=target_s,direction=direction,required=required,branches=reliable,policy=policy)
+                    for row in options]
+            elif len(options)>1:
                 from directional_handoff import future_switch_cost
                 zd=-1 if direction=='lower' else 1
                 target_z=min(b['z_range'][0] for b in reliable) if zd==-1 else max(b['z_range'][1] for b in reliable)
@@ -265,12 +281,15 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                         future_directional_extent=max(0.,zd*(b['z_range'][0 if zd==-1 else 1]-required[0 if zd==-1 else 1])),
                         future_surface_support_span=row.get('support_s_span',0.))
             terminal_bid=terminal[0]['branch_id']
-            core_bounds=_terminal_core_bounds(terminal,by_id[terminal_bid],evidence[terminal_bid])
             core_before=contribution_metrics(by_id[terminal_bid],records,evidence[terminal_bid])['retained_ASC_arc_length']
             pending=list(options); rank=0
             while pending:
-                decision=choose_candidate(pending,policy=policy,current_branch_id=terminal_bid,
-                    detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
+                if physical:
+                    from competitive_surface_selection import choose_successor
+                    decision=choose_successor(pending,current_branch_id=terminal_bid)
+                else:
+                    decision=choose_candidate(pending,policy=policy,current_branch_id=terminal_bid,
+                        detail_loader=lambda r:same_surface_detail(graph,(float(target_s),r['branch_id'])))
                 target=decision['selected']; rank+=1
                 pending=[row for row in pending if row['piece_index']!=target['piece_index']]
                 attempt=dict(frontier=direction,branch_id=target['branch_id'],piece_index=target['piece_index'],
@@ -278,12 +297,42 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                     comparison_ambiguous=decision['comparison_ambiguous'],
                     detail_stage_comparisons=decision['detail_stage_comparisons'],feasibility_accepted=False)
                 decisions.append(attempt)
+                if physical:
+                    attempt.update(identity_candidates=[{k:v for k,v in x.items() if k!='fragment'} for x in pending+[target]],
+                        identity_trace=decision['trace'],competition_z=target['competition_z'],
+                        FaceTrack=target['FaceTrack'],distance_used_for_identity=False)
                 piece=pieces[target['piece_index']]
                 left,right=(piece,terminal) if direction=='lower' else (terminal,piece)
-                join=_nearest_join(left,right,required,locked_range,direction,terminal_core_bounds=core_bounds)
+                if physical:
+                    from competitive_surface_selection import reliable_junction
+                    join,diagnostic=reliable_junction(terminal,piece,by_id[terminal_bid],by_id[target['branch_id']],
+                        evidence[terminal_bid],evidence[target['branch_id']],required=required,
+                        locked_range=locked_range,direction=direction,policy=policy)
+                    context=graph['physical_face_context']
+                    region=context.cache[target['face_conflict_region']]['region']
+                    from_face=context.evidence(float(target_s),by_id[terminal_bid],target['competition_z'],region=region)
+                    diagnostic.update(from_FaceTrack=from_face['FaceTrack'],to_FaceTrack=target['FaceTrack'],
+                        to_branch_forward_Z_extent=target['forward_Z_m'],to_branch_forward_ASC_length=target['forward_ASC_m'],
+                        to_branch_future_switches=target['minimum_switches'])
+                    attempt['junction_diagnostic']=diagnostic
+                    if join is not None:join.update(diagnostic)
+                else:
+                    supported_fold=False
+                    if graph is not None and graph.get('observations'):
+                        from directional_handoff import _fold_protected,_arc_at
+                        zd=-1 if direction=='lower' else 1
+                        branch=by_id[terminal_bid]
+                        begin=_arc_at(branch,terminal[0],0);end=_arc_at(branch,terminal[-1],1)
+                        adir=zd*(1 if end>=begin else -1)
+                        supported_fold=_fold_protected(graph,(float(target_s),terminal_bid),
+                            end if zd<0 else begin,adir,zd,evidence[terminal_bid],target.get('support_s_span',0.))
+                    # This protects a fold only when actual H/V evidence supports
+                    # it; it does not restore the discarded static ASC lock.
+                    join=_nearest_join(left,right,required,locked_range,direction,protect_folds=supported_fold)
                 if join is None:
                     rejections.append(dict(frontier=direction,branch_id=target['branch_id'],
-                        piece_index=target['piece_index'],identity_rank=rank,reason='NO_VALID_JUNCTION'))
+                        piece_index=target['piece_index'],identity_rank=rank,reason='NO_VALID_JUNCTION',
+                        junction_diagnostic=attempt.get('junction_diagnostic')))
                     continue
                 extension=_splice(left,right,join)
                 separator=next(i for i,r in enumerate(extension) if r['source']=='TOPOLOGY_SWITCH')
@@ -296,10 +345,9 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
                 retained_ok=all(contribution_metrics(by_id[bid],new_records,evidence[bid])['contribution_pass']
                     for bid in {r['branch_id'] for r in new_records if r['source'].startswith('OBSERVED')})
                 core_after=contribution_metrics(by_id[terminal_bid],new_records,evidence[terminal_bid])['retained_ASC_arc_length']
-                core_preserved=core_after+1e-7>=core_before
-                if not contribution['contribution_pass'] or not retained_ok or not gate['accepted'] or budget_failure or not core_preserved:
+                if not contribution['contribution_pass'] or not retained_ok or not gate['accepted'] or budget_failure:
                     reason=(gate['reason'] if not gate['accepted'] else budget_failure or
-                            ('REJECT_STATIC_ASC_TRIM' if not core_preserved else 'REJECT_NO_RETAINED_CORE'))
+                            'REJECT_NO_RETAINED_CORE')
                     rejections.append(dict(frontier=direction,branch_id=target['branch_id'],piece_index=target['piece_index'],
                         identity_rank=rank,junction=join,**contribution,**{**gate,'reason':reason}))
                     continue

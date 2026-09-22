@@ -21,7 +21,7 @@ def _direction(branch, z_direction):
 
 
 def future_switch_cost(branches, start_branch_id, *, z_direction, target_z, policy=None, depth=2,
-                       start_records=None):
+                       start_records=None, reliable_entry=False):
     """Depth-two search through actual bounded, core-retaining continuations.
 
     An unreachable frontier is reported explicitly; depth+1 is a lower-bound
@@ -57,8 +57,14 @@ def future_switch_cost(branches, start_branch_id, *, z_direction, target_z, poli
                 continue
             c = _oriented(candidate['records'])
             left, right = (terminal, c) if z_direction == 1 else (c, terminal)
-            join = _nearest_join(left, right, (min(zs),max(zs)), locked_range,
-                                 'upper' if z_direction == 1 else 'lower', protect_folds=False)
+            if reliable_entry:
+                from competitive_surface_selection import reliable_junction
+                join,_=reliable_junction(terminal,c,bs[bid],candidate,metrics[bid],metrics[other],
+                    required=(min(zs),max(zs)),locked_range=locked_range,
+                    direction='upper' if z_direction==1 else 'lower',policy=policy)
+            else:
+                join = _nearest_join(left, right, (min(zs),max(zs)), locked_range,
+                                     'upper' if z_direction == 1 else 'lower', protect_folds=False)
             if join is None or join['xyz_distance_m'] > policy.connector_cap_m+1e-12:
                 continue
             extension = _splice(left, right, join)

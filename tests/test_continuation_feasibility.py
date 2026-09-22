@@ -1,4 +1,4 @@
-"""Continuations must keep accepted cores and try identity-ranked alternatives."""
+"""Continuations may trim static ASC and must try identity-ranked alternatives."""
 import unittest
 import numpy as np
 from test_dominant_observed_branch import fixture, dense_path
@@ -36,13 +36,14 @@ class ContinuationFeasibilityTests(unittest.TestCase):
         self.assertAlmostEqual(kept['retained_ASC_arc_length'], m['ASC_arc_length'])
         self.assertLessEqual(route['junctions'][0]['xyz_distance_m'], .010)
 
-    def test_accepted_static_core_fold_is_not_cut_for_an_earlier_crossing(self):
+    def test_static_core_fold_does_not_permanently_block_an_earlier_crossing(self):
         branches, route = self.solve([dense_path([[0, 0], [0, .5], [2, .8], [2, .6], [1, 1]]),
                                     dense_path([[-.1, .4], [.1, .4], [.1, 2]])])
         m = branch_metrics(branches[0], local_edge_scale(branches))
         kept = contribution_metrics(branches[0], route['path_edges'], m)
-        self.assertAlmostEqual(kept['retained_ASC_arc_length'], m['ASC_arc_length'])
-        self.assertEqual(route['route_branch_sequence'], [0])
+        self.assertLess(kept['retained_ASC_arc_length'], m['ASC_arc_length'])
+        self.assertEqual(route['route_branch_sequence'], [0,1])
+        self.assertAlmostEqual(route['route_z_extent'][1],2.)
 
 
 if __name__ == '__main__':
