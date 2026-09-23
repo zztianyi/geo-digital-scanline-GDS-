@@ -22,6 +22,9 @@ from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from PIL import Image
 
+# Shared physical-source colors for boundary review only; no selection policy.
+BOUNDARY_FACE_COLORS = {16: '#2785a3', 19: '#cf833b', 23: '#498e65', 34: '#8751a2'}
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -158,6 +161,173 @@ def _save(fig, output_path, dpi):
     fig.savefig(path, dpi=dpi, bbox_inches='tight', bbox_extra_artists=extra,
                 facecolor='white')
     return str(path)
+
+
+def boundary_segments(points, box):
+    """Clip UZ segments using the existing exact display-only XYZ clipper."""
+    points = _array(points, (2,), 'boundary polyline')
+    if len(points) < 2:
+        return np.empty((0, 2, 2))
+    segments = np.stack((points[:-1], points[1:]), axis=1)
+    xyz = np.pad(segments, ((0, 0), (0, 0), (0, 1)))
+    bounds = np.array([[box[0], box[1]], [box[2], box[3]], [-1., 1.]])
+    return _clip_xyz_lines(xyz, bounds)[:, :, :2]
+
+
+def _boundary_markers(ax, branch, box, color, shift=0., cc=True):
+    points = np.asarray(branch['points_uz'])
+    ends = points[[0, -1]]
+    inside = ((ends[:, 0] >= box[0]) & (ends[:, 0] <= box[1]) &
+              (ends[:, 1] >= box[2]) & (ends[:, 1] <= box[3]))
+    ax.plot(ends[inside, 0]-shift, ends[inside, 1], 'o', color=color,
+            ms=4, zorder=6, clip_on=True)
+    if cc and branch['MBG']:
+        arcs = [branch['CC_start_arc'], branch['CC_end_arc']]
+        knots = np.array([[np.interp(a, branch['arc_positions'], points[:, k])
+                           for k in (0, 1)] for a in arcs])
+        inside = ((knots[:, 0] >= box[0]) & (knots[:, 0] <= box[1]) &
+                  (knots[:, 1] >= box[2]) & (knots[:, 1] <= box[3]))
+        ax.plot(knots[inside, 0]-shift, knots[inside, 1], 's', mfc='white',
+                mec=color, ms=4, zorder=7, clip_on=True)
+
+
+def _boundary_style():
+    style, _, _, chinese, _ = _paper_helpers()
+    # Config can reference a font absent on this machine. Reuse the working
+    # Windows font choice from render_facetrack_voting_phase1, without changing
+    # project configuration or styles of existing plotting functions.
+    chinese = chinese.copy()
+    if not chinese.get_file():
+        chinese.set_family(['Microsoft YaHei', 'DejaVu Sans'])
+    return style, chinese
+
+
+def plot_boundary_neighbors(case, output_path, dpi=180):
+    """Same-axis observed profiles plus separate physical-source rows.
+
+    Caller supplies frozen profiles, decisions and ROI. Thick strokes denote
+    the preferred *group*, never an assembled route or a selected branch.
+    """
+    style, chinese = _boundary_style()
+    small = chinese.copy(); small.set_size(9)
+    tracks, profiles, box = case['tracks'], case['profiles'], case['box']
+    with plt.rc_context(style):
+        fig, axes = plt.subplots(1+len(tracks), len(profiles), squeeze=False,
+                                 figsize=(3.05*len(profiles), 3.5*(1+len(tracks))))
+        try:
+            for col, profile in enumerate(profiles):
+                for row, track in enumerate([None, *tracks]):
+                    ax = axes[row, col]
+                    for branch in profile['branches'].values():
+                        seg = boundary_segments(branch['points_uz'], box)
+                        _lines(ax, seg, '#c3c6cb', None, .8, zorder=1)
+                    visible = []
+                    for bid, branch in profile['branches'].items():
+                        groups = set(branch['physical_groups']) & set(tracks)
+                        if track is not None:
+                            groups &= {track}
+                        seg = boundary_segments(branch['points_uz'], box)
+                        if not len(seg):
+                            continue
+                        for pf in sorted(groups):
+                            color = BOUNDARY_FACE_COLORS[pf]
+                            _lines(ax, seg, color, None, 2.5 if pf == profile['winner'] else 1.15,
+                                   linestyles='solid' if branch['MBG'] else 'dotted', zorder=3)
+                            _boundary_markers(ax, branch, box, color)
+                            visible.append(f'B{bid}')
+                    if row == 0:
+                        title = (f"s={profile['s']:.2f} m | {profile['subregion'].split('_')[-1]}\n"
+                                 f"首选 PF{profile['winner']} | 本线票 {profile['vote_label']}")
+                    else:
+                        title = f"PF{track} | "+(', '.join(visible) if visible else '本窗无片段')
+                    ax.set_title(title, fontproperties=small, pad=5)
+                    ax.set_xlim(box[:2]); ax.set_ylim(box[2:]); ax.grid(alpha=.17)
+                    ax.ticklabel_format(useOffset=False, style='plain')
+                    ax.xaxis.set_major_locator(MaxNLocator(4))
+                    ax.yaxis.set_major_locator(MaxNLocator(5))
+                    ax.tick_params(labelsize=8)
+                    if col == 0:
+                        ax.set_ylabel(('原坐标叠图' if row == 0 else f'PF{track} 分开查看')+'\n高程 z (m)', fontproperties=small)
+                    else:
+                        ax.tick_params(labelleft=False)
+                    if row == len(tracks):
+                        ax.set_xlabel('横向偏移 u (m)', fontproperties=small)
+            handles = [Line2D([], [], color=BOUNDARY_FACE_COLORS[t], lw=2, label=f'PF{t}') for t in tracks]
+            handles += [Line2D([], [], color='#555555', marker='o', lw=0, label='原始分支端点'),
+                        Line2D([], [], color='#555555', marker='s', mfc='white', lw=0, label='冻结 CC 边界')]
+            fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(.5, .033),
+                       ncol=len(handles), prop=small, frameon=False)
+            fig.suptitle(f"图 A · {case['id']} / {case['region']} · {case['label']}\n"
+                         f"{profiles[0]['s']:.2f}–{profiles[-1]['s']:.2f} m | {case['boundary_text']}",
+                         fontproperties=chinese, y=.985)
+            fig.text(.5, .019, '灰线：全部原始剖线；粗线：子区首选面组的候选线（尚非最终主轨）；细线：其他候选；点线：MBG 不合格。',
+                     ha='center', fontproperties=small)
+            fig.text(.5, .003, '各格使用同一坐标范围；横纵显示比例可能不同。圆点才是真端点，裁图边缘不是断点。',
+                     ha='center', fontproperties=small)
+            fig.subplots_adjust(left=.065, right=.99, bottom=.105, top=.9, wspace=.13, hspace=.26)
+            return _save(fig, output_path, dpi)
+        finally:
+            plt.close(fig)
+
+
+def plot_boundary_alignment(case, output_path, dpi=190):
+    """Raw and display-aligned overlays, without matching/merging branches."""
+    style, chinese = _boundary_style()
+    small = chinese.copy(); small.set_size(10)
+    profiles, tracks, box = case['key_profiles'], case['tracks'], case['detail_box']
+    styles = ['solid', (0, (7, 3)), (0, (2, 2)), (0, (6, 2, 1, 2))]
+    with plt.rc_context(style):
+        fig, axes = plt.subplots(len(tracks), 2, squeeze=False, figsize=(13.5, 4.4*len(tracks)))
+        try:
+            for row, track in enumerate(tracks):
+                alignment = case['alignment'][track]
+                aligned_segments = []
+                for col in (0, 1):
+                    ax = axes[row, col]
+                    for index, profile in enumerate(profiles):
+                        offset = alignment['offsets_u'][str(profile['s'])] if col and alignment['z_ref'] is not None else 0.
+                        for branch in profile['branches'].values():
+                            if track not in branch['physical_groups']:
+                                continue
+                            segments = boundary_segments(branch['points_uz'], box).copy()
+                            segments[:, :, 0] -= offset
+                            if col and len(segments):
+                                aligned_segments.append(segments)
+                            _lines(ax, segments, BOUNDARY_FACE_COLORS[track], None, 1.65,
+                                   linestyles=styles[index], alpha=.65+.35*index/max(1, len(profiles)-1), zorder=3)
+                            _boundary_markers(ax, branch, box, BOUNDARY_FACE_COLORS[track], offset, cc=False)
+                    if col and alignment['z_ref'] is not None:
+                        ax.axhline(alignment['z_ref'], color='#bbbbbb', lw=.75, zorder=1)
+                        title = f"PF{track} · 同高程水平平移对齐 (z={alignment['z_ref']:.3f} m)"
+                        if aligned_segments:
+                            extent = np.concatenate(aligned_segments)[:, :, 0]
+                            lo, hi = extent.min(), extent.max(); pad=max((hi-lo)*.06, .03)
+                            ax.set_xlim(lo-pad, hi+pad)
+                        ax.set_xlabel('u − 本线在参考高程的 u (m)', fontproperties=small)
+                    else:
+                        title = f"PF{track} · "+('无唯一共同锚点，保留原坐标' if col else '原坐标叠加')
+                        ax.set_xlim(box[:2]); ax.set_xlabel('横向偏移 u (m)', fontproperties=small)
+                    ax.set_title(title, fontproperties=small)
+                    ax.set_ylim(box[2:]); ax.grid(alpha=.18)
+                    ax.ticklabel_format(useOffset=False, style='plain')
+                    ax.xaxis.set_major_locator(MaxNLocator(5))
+                    ax.yaxis.set_major_locator(MaxNLocator(6))
+                    ax.tick_params(labelsize=9)
+                    ax.set_ylabel('高程 z (m)', fontproperties=small)
+                handles = [Line2D([], [], color=BOUNDARY_FACE_COLORS[track], lw=1.6, ls=styles[i],
+                                  label=f"s={p['s']:.2f} · 首选 PF{p['winner']}") for i,p in enumerate(profiles)]
+                axes[row, 0].legend(handles=handles, prop=small, loc='best', framealpha=.8)
+            fig.suptitle(f"图 B · {case['id']} / {case['region']} · {case['label']}\n{case['boundary_text']}",
+                         fontproperties=chinese, y=.99)
+            fig.text(.5, .023, '圆点：真实分支端点。只做水平平移；高程、形状和断点不变，不旋转、不缩放、不连接。',
+                     ha='center', fontproperties=small)
+            fig.text(.5, .005, '右列各面组分别对齐，仅用于比较同组邻线形态；不同面组的实际间距请看左列与图 A。',
+                     ha='center', fontproperties=small)
+            fig.subplots_adjust(left=.09, right=.985, bottom=.105, top=.9,
+                                wspace=.24, hspace=.36)
+            return _save(fig, output_path, dpi)
+        finally:
+            plt.close(fig)
 
 
 def plot_local_review(case: dict, output_path, dpi=300) -> dict:

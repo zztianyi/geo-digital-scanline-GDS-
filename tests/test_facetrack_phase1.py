@@ -3,7 +3,25 @@ import sys,unittest
 from pathlib import Path
 from dataclasses import FrozenInstanceError
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/04_structure_recognition'))
+
+
+def qualitative_fixture(exits=(1.,.99),coverage=(10,10),cores=(True,True),mbg=(True,True)):
+    """Hand-built 10-cell mask: literal full/partial witnessed coverage."""
+    branches={};cells={}
+    for bid,(exit_m,n,cc,valid) in enumerate(zip(exits,coverage,cores,mbg)):
+        length=1+n+exit_m
+        branches[bid]=dict(branch_id=bid,MBG=valid,CC_start_arc=0.,CC_end_arc=length if cc else .5,
+                           full_arc_length=length,forward_sign=1)
+        for i in range(n):cells.setdefault((i,0),{})[bid+16]=[(bid,1.+i,2.+i)]
+    return dict(region_id='fixture',tracks=[16,17],cells=[[0,i,0] for i in range(10)]),dict(branches=branches,cells=cells)
+
+
+def score_qualitative_fixture(args):
+    from facetrack_phase1_evidence import score_slice,Phase1Policy
+    region,geometry=qualitative_fixture(**args)
+    return score_slice(region,0,0.,geometry,Phase1Policy())
 
 
 class FaceTrackPhase1Tests(unittest.TestCase):
@@ -71,6 +89,89 @@ class FaceTrackPhase1Tests(unittest.TestCase):
     def test_continuous_coverage_does_not_bridge_a_missing_v(self):
         from facetrack_phase1_vote import longest_run
         self.assertEqual(longest_run([0,1,3,4,5],{i:i*.05 for i in range(6)}),(3,.1))
+
+    def test_good_vs_good_does_not_compare_exact_exit_length(self):
+        rows=score_qualitative_fixture(dict(exits=(1.,.99)))
+        self.assertEqual([r['continuity_class'] for r in rows],['CONTINUITY_GOOD']*2)
+        self.assertTrue(all(r['slice_ambiguous'] and r['slice_vote'] is None for r in rows))
+
+    def test_good_vs_weak_rejects_weak(self):
+        rows=score_qualitative_fixture(dict(exits=(1.,0.),coverage=(10,4)))
+        self.assertEqual(rows[0]['slice_vote'],16)
+        self.assertEqual(rows[1]['continuity_class'],'CONTINUITY_WEAK')
+        self.assertEqual(rows[1]['elimination_reason'],'REJECT_CONTINUITY_WEAK')
+        self.assertTrue(rows[1]['eliminated'])
+
+    def test_same_continuity_same_cc_becomes_ambiguous(self):
+        for cores in ((True,True),(False,False)):
+            rows=score_qualitative_fixture(dict(exits=(.6,.9),cores=cores))
+            self.assertIsNone(rows[0]['slice_vote'])
+            self.assertTrue(all(r['elimination_reason']=='TIE_AMBIGUOUS' and not r['eliminated'] for r in rows))
+
+    def test_through_boolean_alone_cannot_win_against_equivalent_good_track(self):
+        rows=score_qualitative_fixture(dict(coverage=(10,9)))
+        self.assertTrue(rows[0]['through_region']);self.assertFalse(rows[1]['through_region'])
+        self.assertEqual(rows[0]['continuity_class'],rows[1]['continuity_class'])
+        self.assertIsNone(rows[0]['slice_vote'])
+
+    def test_cc_can_decide_between_continuity_equivalent_candidates(self):
+        rows=score_qualitative_fixture(dict(exits=(.4,1.),cores=(True,False)))
+        self.assertEqual(rows[0]['slice_vote'],16)
+        self.assertEqual(rows[1]['eliminated_by'],'CC')
+        self.assertEqual(rows[1]['elimination_reason'],'LOSE_CC')
+
+    def test_micro_difference_decision_count_zero(self):
+        from facetrack_phase1_evidence import micro_difference_decisions
+        rows=score_qualitative_fixture(dict(exits=(1.,.99)))
+        self.assertEqual(micro_difference_decisions(rows),[])
+        for row in rows:row.update(slice_vote=16,final_slice_vote=16,slice_ambiguous=False)
+        self.assertEqual(len(micro_difference_decisions(rows)),1,'audit must detect an injected forbidden winner')
+
+    def test_decision_trace_records_elimination_stage(self):
+        rows=score_qualitative_fixture(dict(mbg=(True,False)))
+        self.assertEqual(rows[1]['stage_reached'],'MBG')
+        self.assertEqual(rows[1]['eliminated_by'],'MBG')
+        self.assertEqual(rows[1]['elimination_reason'],'REJECT_MBG')
+        self.assertEqual({r['final_slice_vote'] for r in rows},{16})
+
+    def test_A3_parallel_result_deterministic(self):
+        fixtures=[dict(exits=(1.,.99)),dict(coverage=(10,9)),dict(cores=(True,False)),
+                  dict(exits=(1.,0.),coverage=(10,4))]
+        serial=[score_qualitative_fixture(f) for f in fixtures]
+        with ProcessPoolExecutor(max_workers=2) as pool:
+            parallel=list(pool.map(score_qualitative_fixture,fixtures[::-1]))
+        self.assertEqual(serial,parallel[::-1])
+        self.assertEqual([r[0]['slice_vote'] for r in serial],[None,None,16,16])
+
+    def test_all_weak_candidates_do_not_produce_a_winner(self):
+        rows=score_qualitative_fixture(dict(exits=(0.,0.),coverage=(3,4),cores=(True,False)))
+        self.assertIsNone(rows[0]['slice_vote'])
+        self.assertTrue(all(r['eliminated_by']=='CONTINUITY' for r in rows))
+
+    def test_witness_choice_cannot_hide_an_exact_length_tiebreak(self):
+        from facetrack_phase1_evidence import score_slice,Phase1Policy
+        region,geometry=qualitative_fixture(exits=(.75,.9))
+        geometry['branches'][2]=dict(geometry['branches'][0],branch_id=2,full_arc_length=11.9,CC_end_arc=11.9)
+        for i in range(10):geometry['cells'][i,0][16].append((2,1.+i,2.+i))
+        rows=score_slice(region,0,0.,geometry,Phase1Policy())
+        self.assertEqual(rows[0]['witness_branch'],0)
+        self.assertIsNone(rows[0]['slice_vote'])
+
+    def test_tiny_mask_reentry_gap_is_not_a_continuity_failure(self):
+        from facetrack_phase1_evidence import score_slice,Phase1Policy
+        region,geometry=qualitative_fixture()
+        geometry['cells'][4,0][17]=[(1,5.,5.4),(1,5.41,6.)]
+        rows=score_slice(region,0,0.,geometry,Phase1Policy())
+        self.assertFalse(rows[1]['through_region'])
+        self.assertEqual(rows[1]['continuous_interval_count'],2)
+        self.assertEqual(rows[1]['continuity_class'],'CONTINUITY_GOOD')
+        self.assertIsNone(rows[0]['slice_vote'])
+
+    def test_good_beats_uncertain_without_exact_comparison(self):
+        rows=score_qualitative_fixture(dict(coverage=(10,7),exits=(.5,1.)))
+        self.assertEqual(rows[1]['continuity_class'],'CONTINUITY_UNCERTAIN')
+        self.assertEqual(rows[1]['elimination_reason'],'LOSE_CONTINUITY_CLASS')
+        self.assertEqual(rows[0]['slice_vote'],16)
 
     @staticmethod
     def rows():
