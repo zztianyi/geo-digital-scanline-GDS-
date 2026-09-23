@@ -28,7 +28,7 @@ def build_surface_graph(profiles, observations=(), *, slice_order=None, minimum_
         level_z[h['level_index']] = h['z']
         by_level_slice[(h['level_index'], h['s'])].append((hit_index, h))
     evaluable, association, raw_paths = defaultdict(set), {}, defaultdict(dict)
-    ambiguous_hits = []
+    ambiguous_hits = [];exact_crossings={}
     for (li, s), hits in by_level_slice.items():
         z = level_z[li]
         active = {}
@@ -39,8 +39,14 @@ def build_surface_graph(profiles, observations=(), *, slice_order=None, minimum_
                     active[b['branch_id']] = cross
                     evaluable[(s, b['branch_id'])].add(li)
         for hi, hit in hits:
-            matches = [(s, bid) for bid, cross in active.items()
-                       if associate_crossing(hit, nodes[(s, bid)], cross)]
+            matches=[];located=[]
+            for bid,cross in active.items():
+                found=associate_crossing(hit,nodes[(s,bid)],cross)
+                if found:matches.append((s,bid))
+                if nodes[(s,bid)]['kind']=='OPEN_SURFACE_BRANCH':
+                    unique={round(c['arc_position'],8):c for c in found}
+                    located.extend(((s,bid),c) for c in unique.values())
+            exact_crossings[hi]=located
             association[hi] = matches
             raw_paths[(li, hit['h_path_id'])].setdefault(s, []).append(hi)
             if len(matches) > 1:
@@ -151,4 +157,5 @@ def build_surface_graph(profiles, observations=(), *, slice_order=None, minimum_
         support=dict(support), observations=list(observations), linked_observations=linked,
         raw_H_hits=len(observations), surface_linked_H_hits=len(linked_indices),
         ambiguous_hit_count=len(ambiguous_hits), closed_transition_evidence=transitions,
-        level_z=level_z, slice_order=order, legacy_endpoint_influence_on_surface_identity=0)
+        level_z=level_z, slice_order=order, legacy_endpoint_influence_on_surface_identity=0,
+        _observed_crossing_cache=exact_crossings)

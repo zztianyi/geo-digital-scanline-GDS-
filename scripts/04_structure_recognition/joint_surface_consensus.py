@@ -20,7 +20,8 @@ def _index(graph):
     for i, hit in enumerate(graph.get('observations', ())):
         runs[(hit['level_index'], hit['h_path_id'])][hit['s']].append(i)
         by_s[hit['s']].append(i)
-    index = dict(runs=runs, by_s=by_s, nodes_s=nodes_s, matches={}, profiles={})
+    index = dict(runs=runs, by_s=by_s, nodes_s=nodes_s,
+                 matches=dict(graph.get('_observed_crossing_cache',{})), profiles={})
     graph['_joint_index'] = index
     return index
 

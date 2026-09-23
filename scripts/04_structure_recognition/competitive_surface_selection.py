@@ -8,14 +8,24 @@ import numpy as np
 from branch_absolute_core import BranchPolicy, branch_metrics, local_edge_scale
 
 
-def choose_successor(rows, current_branch_id=None):
-    rows=[dict(r) for r in rows]; contenders=[r for r in rows if r['MBG_pass']];trace=[]
+def choose_successor(rows, current_branch_id=None, *, scope_rows=None):
+    from continuation_modes import decision_scope
+    rows=[dict(r) for r in rows]
+    for row in rows:
+        # Candidates may come from different-sized physical regions. A 75/75
+        # count must not beat 7/7 merely because its enclosing box is larger.
+        row['face_continuity_fraction']=row.get('face_continuity',0)/max(1,row.get('face_context_slice_count',1))
+    contenders=[r for r in rows if r['MBG_pass']];trace=[]
+    scope=decision_scope(contenders if scope_rows is None else scope_rows)
     if not contenders:
         return dict(selected=None,candidates=rows,ambiguous=False,comparison_ambiguous=False,
-                    decision_stage='MBG',detail_stage_comparisons=0,trace=[])
+                    decision_stage='MBG',detail_stage_comparisons=0,trace=[],**scope)
+    if scope['competitor_count']<2:
+        return dict(selected=contenders[0],candidates=rows,ambiguous=False,comparison_ambiguous=False,
+                    decision_stage='NONCOMPETITIVE_CONTINUATION',detail_stage_comparisons=0,trace=[],**scope)
     # A sweet-core tie is not the end of identity selection. Net continuation
     # past the present frontier is compared before estimated future switches.
-    for field,reverse,tol in [('face_continuity',True,0.),('in_ASC',True,0.),
+    for field,reverse,tol in [('region_priority',True,0.),('face_continuity_fraction',True,1e-12),('in_ASC',True,0.),
                               ('forward_Z_m',True,1e-6),('forward_ASC_m',True,1e-6),
                               ('minimum_switches',False,0.)]:
         best=(max if reverse else min)(r.get(field,0) for r in contenders)
@@ -27,7 +37,7 @@ def choose_successor(rows, current_branch_id=None):
     selected.update(selected=True,reason='AMBIGUOUS' if ambiguous else 'FACETRACK_COMPETITIVE_ASC')
     return dict(selected=selected,candidates=rows,ambiguous=ambiguous,
         comparison_ambiguous=len(contenders)>1,decision_stage='FACETRACK_COMPETITIVE_ASC',
-        detail_stage_comparisons=0,trace=trace)
+        detail_stage_comparisons=0,trace=trace,**scope)
 
 
 def local_arc_positions(records,branch):
@@ -48,7 +58,8 @@ def _clip(records,branch,interval):
 
 
 def reliable_junction(terminal,candidate,from_branch,to_branch,ma,mb,*,
-                      required,locked_range,direction,policy=None,preserve_extent=True,junction_z_bounds=None):
+                      required,locked_range,direction,policy=None,preserve_extent=True,junction_z_bounds=None,
+                      cache=None,all_candidates=False,bounded=False,protected_arcs=None,terminal_first=True):
     """Search all segments in dual ASC; only if absent use tail -> target ASC.
 
 Static ASC may be trimmed. The retained minimum contribution still has to
@@ -60,6 +71,30 @@ exist on both sides. Guard nodes are defined on original branches, not clips.
         from_FaceTrack=None,to_FaceTrack=None,from_in_ASC_at_junction=None,
         to_in_ASC_at_junction=None,dual_ASC_overlap_exists=False,
         candidate_min_distance_m=None,accepted_junction_distance_m=None,junction_reason='UNRESOLVED')
+    if terminal_first:
+        from terminal_junction_consensus import terminal_candidates,_in_band
+        from main_track_assembly import _splice
+        left,right=(candidate,terminal) if lower else (terminal,candidate)
+        a,b=(to_branch,from_branch) if lower else (from_branch,to_branch)
+        am,bm=(mb,ma) if lower else (ma,mb)
+        found=terminal_candidates(left,right,a,b,am,bm,direction=direction,policy=policy,protected_arcs=protected_arcs)
+        accepted=[]
+        for j in found:
+            if junction_z_bounds is not None:
+                j=_in_band(j,*junction_z_bounds)
+                if j is None:continue
+                j['z_min']=max(j['z_min'],junction_z_bounds[0]);j['z_max']=min(j['z_max'],junction_z_bounds[1])
+            if preserve_extent:
+                records=_splice(left,right,j);zs=[p[1] for r in records for p in r['points_uz']]
+                if min(min(zs),locked_range[0])>required[0]+1e-6 or max(max(zs),locked_range[1])<required[1]-1e-6:continue
+            j.update(from_FaceTrack=None,to_FaceTrack=None)
+            accepted.append(j)
+        accepted.sort(key=lambda j:(j['terminal_retreat_m'],j['xyz_distance_m']))
+        if accepted:
+            first=accepted[0];audit.update(candidate_min_distance_m=min(j['xyz_distance_m'] for j in accepted),
+                accepted_junction_distance_m=first['xyz_distance_m'],junction_reason=first['junction_reason'],
+                from_in_ASC_at_junction=True,to_in_ASC_at_junction=True)
+        return (accepted if all_candidates else (accepted[0] if accepted else None)),audit
     if not ma['MBG_pass'] or not mb['MBG_pass']:return None,audit
     aa=local_arc_positions(terminal,from_branch);bb=local_arc_positions(candidate,to_branch)
     adir=(1 if aa[-1,1]>=aa[0,0] else -1)*(-1 if lower else 1)
@@ -94,28 +129,44 @@ exist on both sides. Guard nodes are defined on original branches, not clips.
     fixed_z=[p[1] for r in original_left[:lm[0][0]]+original_right[rm[-1][0]+1:] for p in r['points_uz']]
     fixed_z.extend([original_left[0]['points_uz'][0][1],original_right[-1]['points_uz'][1][1]])
     full_locked=(min(locked_range[0],min(fixed_z)),max(locked_range[1],max(fixed_z)))
-    j=_nearest_join(left,right,required,full_locked,direction,
+    search=cache.search if cache is not None else _nearest_join
+    result=search(left,right,required,full_locked,direction,
                     protect_folds=False,preserve_extent=preserve_extent,prefer_early=True,
-                    allow_clipped_boundaries=True,junction_z_bounds=junction_z_bounds)
-    if j is None:return None,audit
+                    allow_clipped_boundaries=True,junction_z_bounds=junction_z_bounds,
+                    max_distance=policy.p1_handoff_cap_m if all_candidates or bounded else None,
+                    all_candidates=all_candidates,decision_mode='COMPETITIVE_SELECTION')
+    if not result:return ([] if all_candidates else None),audit
+    results=result if all_candidates else [result]
+    converted=[]
+    for j in results:
+        j=_finish_junction(j,amap,bmap,aa,terminal,candidate,lower,audit,ma,mb,policy,
+                           required,locked_range,preserve_extent,kind)
+        if j is not None:converted.append(j)
+    if all_candidates:return converted,audit
+    return (converted[0] if converted else None),audit
+
+
+def _finish_junction(j,amap,bmap,aa,terminal,candidate,lower,audit,ma,mb,policy,
+                     required,locked_range,preserve_extent,kind):
     for side,mapping,original in [('a',bmap if lower else amap,candidate if lower else terminal),
                                  ('b',amap if lower else bmap,terminal if lower else candidate)]:
         i,t0,t1=mapping[j[side+'_edge_index']]
         j[side+'_edge_index']=i;j[side+'_t']=t0+j[side+'_t']*(t1-t0)
         j[side+'_edge_id']=original[i]['edge_id']
     audit['candidate_min_distance_m']=j['xyz_distance_m']
-    if j['xyz_distance_m']>policy.connector_cap_m+1e-12:return None,audit
-    from main_track_assembly import _splice
-    records=_splice(candidate,terminal,j) if lower else _splice(terminal,candidate,j)
-    zs=[p[1] for r in records for p in r['points_uz']]
-    lo=min(min(zs),locked_range[0]);hi=max(max(zs),locked_range[1])
-    if preserve_extent and (lo>required[0]+1e-6 or hi<required[1]-1e-6):return None,audit
+    if j['xyz_distance_m']>policy.p1_handoff_cap_m+1e-12:return None
+    if preserve_extent:
+        from main_track_assembly import _splice
+        records=_splice(candidate,terminal,j) if lower else _splice(terminal,candidate,j)
+        zs=[p[1] for r in records for p in r['points_uz']]
+        lo=min(min(zs),locked_range[0]);hi=max(max(zs),locked_range[1])
+        if lo>required[0]+1e-6 or hi<required[1]-1e-6:return None
     side='b' if lower else 'a';i=j[side+'_edge_index'];t=j[side+'_t']
     apos=aa[i,0]+t*(aa[i,1]-aa[i,0])
     audit.update(from_in_ASC_at_junction=bool(ma['ASC_start_arc']-1e-9<=apos<=ma['ASC_end_arc']+1e-9),
         to_in_ASC_at_junction=True,accepted_junction_distance_m=j['xyz_distance_m'],
         junction_reason='REAL_INTERSECTION' if j['xyz_distance_m']<1e-9 else kind)
-    j.update(audit);return j,audit
+    j.update(audit,distance_cap_m=policy.p1_handoff_cap_m);return j
 
 
 def successor_evidence(row,branch,terminal,*,graph,target_s,direction,required,branches,policy=None):

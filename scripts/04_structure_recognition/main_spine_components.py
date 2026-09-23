@@ -7,7 +7,7 @@ the spine and are explicitly ambiguous.
 from __future__ import annotations
 import numpy as np
 from branch_absolute_core import BranchPolicy, branch_metrics, local_edge_scale, route_budgets
-from observed_component_geometry import near_returns, _arc_records
+from observed_component_geometry import near_returns, _arc_records, near_return_families
 
 
 def _length(records):
@@ -33,7 +33,7 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
     from main_track_assembly import _remaining
     policy=policy or BranchPolicy();by={b['branch_id']:b for b in branches}
     scale=local_edge_scale(branches);metrics={i:branch_metrics(b,scale,policy) for i,b in by.items()}
-    main=[dict(r) for r in route['path_edges']];components=[];peel_audit=[]
+    main=[dict(r) for r in route['path_edges']];components=[];peel_audit=[];return_audit=[]
     # Each current observed run has fixed ENTRY/EXIT. Replacing a local return
     # never changes those endpoints or joins unrelated measured surfaces.
     runs=[];start=0
@@ -45,9 +45,12 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
     for start,end,bid in reversed(runs):
         records=main[start:end];arc=np.r_[0.,np.cumsum([_length([r]) for r in records])]
         branch=dict(records=records,arc_positions=arc)
-        events=near_returns(branch,max_gap_m=policy.connector_cap_m,min_arc_m=.5,min_ratio=50)
+        events=near_returns(branch,max_gap_m=policy.p2_near_return_gap_m,min_arc_m=policy.p2_min_path_m,min_ratio=0)
+        families=near_return_families(events,branch=branch,max_gap_m=policy.p2_near_return_gap_m)
+        return_audit.append(dict(branch_id=bid,pairs=events,families=families))
         chosen=[]
-        for e in sorted(events,key=lambda e:(-e['observed_arc_m'],e['D_xyz_m'])):
+        for family in families:
+            e=family['outer']
             if e['start_arc']<=1e-9 or e['end_arc']>=arc[-1]-1e-9:continue
             if any(e['start_arc']<q['end_arc'] and e['end_arc']>q['start_arc'] for q in chosen):continue
             same=False
@@ -63,21 +66,28 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
                 same=len(sources[0])==1 and sources[0]==sources[1]
             if not same:
                 peel_audit.append(dict(branch_id=bid,role='AMBIGUOUS_COMPONENT',reason='RETURN_IDENTITY_NOT_PROVEN',**e));continue
-            chosen.append(e)
+            chosen.append(dict(e,inner_gate=family['inner']))
         if not chosen:continue
         candidate=[];cursor=0.;sides=[]
         for e in sorted(chosen,key=lambda e:e['start_arc']):
             candidate.extend(_arc_records(branch,cursor,e['start_arc']))
-            sides.append(dict(role='LOCAL_ALTERNATIVE_PATH',branch_id=bid,
-                records=_arc_records(branch,e['start_arc'],e['end_arc']),entry_xyz=e['a_xyz'],exit_xyz=e['b_xyz'],
-                reason='SAME_FACETRACK_LOCAL_ENTRY_EXIT_RETURN',needs_manual_review=True))
+            inner=e['inner_gate']
+            proof=dict(outer_gate={k:v for k,v in e.items() if k!='inner_gate'},inner_gate=inner,
+                       P2_admitted=True,needs_manual_review=True)
+            sides.append(dict(role='P2_BODY',branch_id=bid,
+                records=_arc_records(branch,inner['start_arc'],inner['end_arc']),
+                reason='SAME_FACETRACK_LOCAL_ENTRY_EXIT_RETURN',**proof))
+            for lo,hi in [(e['start_arc'],inner['start_arc']),(inner['end_arc'],e['end_arc'])]:
+                neck=_arc_records(branch,lo,hi)
+                if neck:sides.append(dict(role='P2_REDUNDANT_NECK',branch_id=bid,records=neck,
+                    reason='OBSERVED_NEAR_COINCIDENT_NECK',**proof))
             candidate.append(dict(source='TOPOLOGY_SWITCH',branch_id=None,face_id=None,source_face_ids=[],
                 source_segment_indices=[],points_xyz=[e['a_xyz'],e['b_xyz']],points_uz=[e['a_uz'],e['b_uz']],
-                handoff_kind='SIDE_COMPONENT_ENTRY_EXIT',distance_m=e['D_xyz_m']))
+                handoff_kind='P2_OUTER_GATE',distance_m=e['D_xyz_m'],synthetic=True,distance_cap_m=policy.p2_near_return_gap_m))
             cursor=e['end_arc']
         candidate.extend(_arc_records(branch,cursor,float(arc[-1])))
         proposed=main[:start]+candidate+main[end:]
-        budgets=route_budgets(proposed,by,metrics,policy)
+        budgets=route_budgets(proposed,by,metrics,policy,require_core=False)
         if all(x['accepted'] for x in budgets):
             main=proposed;components.extend(sides)
         else:peel_audit.append(dict(branch_id=bid,role='AMBIGUOUS_COMPONENT',reason='ENTRY_EXIT_SYNTHETIC_BUDGET'))
@@ -85,10 +95,10 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
     selected=[r for r in main if r['source'].startswith('OBSERVED')]
     for piece in _remaining(branches,main+peeled):
         bid=piece[0]['branch_id'];b=by[bid]
-        if b['kind']=='CLOSED_COMPONENT':role='SIDE_CLOSED_COMPONENT';reason='PHYSICAL_CLOSED_COMPONENT'
+        if b['kind']=='CLOSED_COMPONENT':role='UNUSED_CLOSED_COMPONENT';reason='PHYSICAL_CLOSED_COMPONENT'
         else:
             ends=[np.asarray(piece[0]['points_xyz'][0]),np.asarray(piece[-1]['points_xyz'][1])]
-            matches=[_endpoint_matches(p,selected,policy.connector_cap_m) for p in ends]
+            matches=[_endpoint_matches(p,selected,policy.p2_near_return_gap_m) for p in ends]
             # Distance counts contacts, never proves FaceTrack membership.
             supported=[False,False]
             if context is not None:
@@ -103,9 +113,9 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
                     mine={labels[f] for f in endpoint['source_face_ids'] if f in labels}
                     active={labels[f] for r in near for f in r['source_face_ids'] if f in labels}
                     supported[i]=len(mine)==1 and mine.issubset(active)
-            role=('LOCAL_ALTERNATIVE_PATH' if all(supported) else 'SIDE_OPEN_BRANCH') if any(supported) else 'AMBIGUOUS_COMPONENT'
+            role='UNUSED_OPEN_BRANCH' if any(supported) else 'AMBIGUOUS_UNUSED'
             reason='ENTRY_EXIT_CONTACTS' if any(supported) else 'UNSELECTED_IDENTITY_REQUIRES_REVIEW'
-        components.append(dict(role=role,branch_id=bid,records=piece,reason=reason,needs_manual_review=role!='SIDE_CLOSED_COMPONENT'))
+        components.append(dict(role=role,branch_id=bid,records=piece,reason=reason,needs_manual_review=role!='UNUSED_CLOSED_COMPONENT',P2_admitted=False))
     side=[dict(r,component_role=c['role']) for c in components for r in c['records']]
     # Compare original source intervals, not rounded coordinates or record count.
     coverage={r['edge_id']:[] for b in branches for r in b['records']}
@@ -121,7 +131,7 @@ def classify_components(branches,route,*,context=None,target_s=None,policy=None)
     if max(gaps,default=0.)>2e-8:raise AssertionError('Discontinuous main spine')
     return dict(MAIN_SPINE=[dict(r,component_role='THROUGH_PATH') for r in main],SIDE_COMPONENTS=side,
         components=[dict(role='THROUGH_PATH',records=main,reason='SELECTED_LOCAL_ENTRY_EXIT_CONTINUATION')]+components,
-        component_audit=peel_audit,source_intervals_preserved=True,
+        component_audit=peel_audit,near_return_audit=return_audit,source_intervals_preserved=True,
         main_observed_arc_m=_length([r for r in main if r['source'].startswith('OBSERVED')]),side_observed_arc_m=_length(side),
         main_continuous=True,reconstruction_interface='reconstruction_inputs(layers, hanging_segments)')
 
@@ -131,5 +141,10 @@ def reconstruction_inputs(layers,hanging_segments):
 
 The consumer receives source records, not a welded/averaged reconstruction.
 """
-    return dict(main_spine=layers['MAIN_SPINE'],hanging_segments=list(hanging_segments),
+    from reviewed_model_gap import is_estimated_gap,structural_runs
+    runs=structural_runs(layers['MAIN_SPINE'])
+    return dict(main_spine=layers['MAIN_SPINE'],hanging_segments=[r for r in hanging_segments if r.get('structure_eligible',True) and not is_estimated_gap(r)],
+        structural_main_spine_runs=runs,
+        estimated_gaps=[r for r in layers['MAIN_SPINE'] if is_estimated_gap(r)],
+        main_spine_contains_display_only_estimates=any(is_estimated_gap(r) for r in layers['MAIN_SPINE']),
         side_components=layers['SIDE_COMPONENTS'],source_intervals_preserved=layers['source_intervals_preserved'])

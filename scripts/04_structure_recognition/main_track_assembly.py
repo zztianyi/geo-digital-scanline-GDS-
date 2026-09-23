@@ -76,114 +76,24 @@ def _terminal_core_bounds(records, branch, metrics):
     return (min(x[0] for x in intervals), max(x[1] for x in intervals)) if intervals else (offset, 0.)
 
 
-def _nearest_join(left, right, required, locked_range, direction, *, transition_arcs=None,
-                  protect_folds=True, preserve_extent=True, terminal_core_bounds=None, prefer_early=False,
-                  allow_clipped_boundaries=False, junction_z_bounds=None):
-    """Exact segment intersections and four endpoint-to-segment projections.
-
-Search all eligible edge interiors, in bounded-size arrays. Retained prefixes
-and suffixes must preserve the old elevation extent and extend one frontier.
-No monotonic-Z requirement is imposed on the measured curves.
-"""
-    pa, pb = _points(left), _points(right)
-    xa_all=np.asarray([left[0]['points_xyz'][0]]+[r['points_xyz'][1] for r in left])
-    xb_all=np.asarray([right[0]['points_xyz'][0]]+[r['points_xyz'][1] for r in right])
-    da, db = np.diff(pa, axis=0), np.diff(pb, axis=0)
-    la, lb = np.linalg.norm(da, axis=1), np.linalg.norm(db, axis=1)
-    ca, cb = np.r_[0., np.cumsum(la)], np.r_[0., np.cumsum(lb)]
-    # Only the current terminal is already accepted geometry. A continuation
-    # may trim its tail, but cannot erase an accepted fold on the way there.
-    folded_a, folded_b = np.flatnonzero(da[:, 1] < -EPS), np.flatnonzero(db[:, 1] < -EPS)
-    protected_a = ca[folded_a[-1]+1] if protect_folds and direction == 'upper' and len(folded_a) else 0.
-    protected_b = cb[folded_b[0]] if protect_folds and direction == 'lower' and len(folded_b) else cb[-1]
-    # terminal_core_bounds is a legacy audit argument only. Static ASC is a
-    # reliability descriptor, never a permanent no-trim boundary (v2 P0).
-    amin, amax = np.minimum.accumulate(pa[:, 1]), np.maximum.accumulate(pa[:, 1])
-    bmin = np.minimum.accumulate(pb[::-1, 1])[::-1]
-    bmax = np.maximum.accumulate(pb[::-1, 1])[::-1]
-    best = None
-    for start in range(0, len(da), 64):
-        end = min(start+64, len(da))
-        p, r = pa[start:end, None, :], da[start:end, None, :]
-        q, s = pb[None, :-1, :], db[None, :, :]
-        xp,xq=xa_all[start:end,None,:],xb_all[None,:-1,:]
-        xr,xs=np.diff(xa_all,axis=0)[start:end,None,:],np.diff(xb_all,axis=0)[None,:,:]
-        rr,ss=np.sum(xr*xr,axis=2),np.sum(xs*xs,axis=2)
-        rs=np.sum(xr*xs,axis=2);w=xp-xq
-        rw,sw=np.sum(xr*w,axis=2),np.sum(xs*w,axis=2)
-        denominator=rr*ss-rs*rs
-        nonparallel=np.abs(denominator)>np.maximum(rr*ss*1e-14,1e-30)
-        ta=np.divide(rs*sw-ss*rw,denominator,out=np.zeros_like(denominator),where=nonparallel)
-        tb=np.divide(rr*sw-rs*rw,denominator,out=np.zeros_like(denominator),where=nonparallel)
-        candidates = [(ta, tb, nonparallel & (ta >= 0) & (ta <= 1) & (tb >= 0) & (tb <= 1))]
-        shape = denominator.shape
-        for fixed in (0., 1.):
-            on_b = np.clip(np.sum((xp+fixed*xr-xq)*xs, axis=2)/np.maximum(ss, 1e-30), 0., 1.)
-            on_a = np.clip(np.sum((xq+fixed*xs-xp)*xr, axis=2)/np.maximum(rr, 1e-30), 0., 1.)
-            candidates.extend(((np.full(shape, fixed), on_b, np.ones(shape, bool)),
-                               (on_a, np.full(shape, fixed), np.ones(shape, bool))))
-        for ta, tb, valid in candidates:
-            qa, qb = p+ta[..., None]*r, q+tb[..., None]*s
-            apos = ca[start:end, None]+ta*la[start:end, None]
-            bpos = cb[None, :-1]+tb*lb[None, :]
-            # Both pieces must contribute observed geometry.
-            if not allow_clipped_boundaries:
-                valid = valid & (apos > EPS) & (cb[-1]-bpos > EPS)
-            if junction_z_bounds is not None:
-                valid &= (qa[...,1]>=junction_z_bounds[0]-EPS)&(qa[...,1]<=junction_z_bounds[1]+EPS)
-                valid &= (qb[...,1]>=junction_z_bounds[0]-EPS)&(qb[...,1]<=junction_z_bounds[1]+EPS)
-            valid &= (apos >= protected_a-EPS) & (bpos <= protected_b+EPS)
-            if transition_arcs is not None:
-                aa,bb=transition_arcs
-                valid &= (apos>=aa[0]-EPS)&(apos<=aa[1]+EPS)&(bpos>=bb[0]-EPS)&(bpos<=bb[1]+EPS)
-            lo = np.minimum(np.minimum(amin[start:end, None], qa[..., 1]),
-                            np.minimum(bmin[None, 1:], qb[..., 1]))
-            hi = np.maximum(np.maximum(amax[start:end, None], qa[..., 1]),
-                            np.maximum(bmax[None, 1:], qb[..., 1]))
-            lo, hi = np.minimum(lo, locked_range[0]), np.maximum(hi, locked_range[1])
-            if preserve_extent:
-                valid &= (lo <= required[0]+EPS) & (hi >= required[1]-EPS)
-                valid &= (lo < required[0]-1e-6) if direction == 'lower' else (hi > required[1]+1e-6)
-            if not valid.any():
-                continue
-            distance = np.linalg.norm(xp+ta[...,None]*xr-xq-tb[...,None]*xs, axis=2)
-            # Coincident/intersecting geometry first; otherwise true minimum gap.
-            distance_key = np.where(distance < EPS, 0., distance)
-            removed = bpos if direction == 'lower' else ca[-1]-apos
-            flat = np.flatnonzero(valid)
-            timing = -removed if prefer_early else removed
-            order = np.lexsort((flat, timing.ravel()[flat], distance_key.ravel()[flat]))
-            k = flat[order[0]]
-            i, j = np.unravel_index(k, shape)
-            rank = (float(distance_key[i, j]), float(timing[i, j]))
-            if best is None or rank < best[0]:
-                best = (rank, start+i, j, float(ta[i, j]), float(tb[i, j]), qa[i, j], qb[i, j])
-    if best is None:
-        return None
-    rank, i, j, ta, tb, qa, qb = best
-    xa, xb = np.asarray(left[i]['points_xyz']), np.asarray(right[j]['points_xyz'])
-    xa, xb = xa[0]+ta*(xa[1]-xa[0]), xb[0]+tb*(xb[1]-xb[0])
-    norm = la[i]*lb[j]
-    turn = float(np.degrees(np.arccos(np.clip(np.dot(da[i], db[j])/norm, -1., 1.)))) if norm > 0 else None
-    virtual = sum(EPS < t < 1.-EPS for t in (ta, tb))
-    return dict(junction_type='REAL_INTERSECTION' if rank[0] == 0. else 'CLOSEST_POINT_PAIR',
-        a_edge_index=int(i), b_edge_index=int(j), a_edge_id=left[i]['edge_id'], b_edge_id=right[j]['edge_id'],
-        a_t=ta, b_t=tb, a_point_uz=qa.tolist(), b_point_uz=qb.tolist(),
-        a_point_xyz=xa.tolist(), b_point_xyz=xb.tolist(), distance_m=float(np.linalg.norm(qa-qb)),
-        xyz_distance_m=float(np.linalg.norm(xa-xb)), new_virtual_nodes=virtual,
-        tangent_turn_deg=turn, frontier=direction, removed_terminal_length_m=abs(rank[1]),
-        from_branch_id=left[i]['branch_id'], to_branch_id=right[j]['branch_id'])
+def _nearest_join(left, right, required, locked_range, direction, **options):
+    """Exact original-segment geometry; AABB pruning never changes coordinates."""
+    from junction_geometry import search
+    return search(left,right,required,locked_range,direction,**options)
 
 
 def _splice(left, right, junction):
+    from math import hypot
     from dominant_observed_branch import trim_record
     i, j = junction['a_edge_index'], junction['b_edge_index']
     a = left[:i]+[trim_record(left[i], 0., junction['a_t'])]
     b = [trim_record(right[j], junction['b_t'], 1.)]+right[j+1:]
-    a, b = ([r for r in records if np.linalg.norm(np.diff(r['points_uz'], axis=0)) > 1e-12] for records in (a, b))
+    a, b = ([r for r in records if hypot(r['points_uz'][1][0]-r['points_uz'][0][0],
+                                       r['points_uz'][1][1]-r['points_uz'][0][1]) > 1e-12] for records in (a, b))
     connector = dict(source='TOPOLOGY_SWITCH', face_id=None, source_face_ids=[], source_segment_indices=[],
         branch_id=None, points_uz=[junction['a_point_uz'], junction['b_point_uz']],
         points_xyz=[junction['a_point_xyz'], junction['b_point_xyz']])
+    connector.update({k:junction[k] for k in ('handoff_kind','synthetic','decision_mode','distance_cap_m','distance_m') if k in junction})
     return a+[connector]+b
 
 
@@ -195,6 +105,10 @@ def assemble_main_track(branches, initial_route, *, anchor_branch_id, graph=None
     piece retains a physical absolute core; even a zero-length intersection
     cannot promote an endpoint sliver or a short A-B-A excursion.
     """
+    if graph is not None and graph.get('physical_face_context') is not None:
+        from physical_continuation import assemble_physical_track
+        return assemble_physical_track(branches,initial_route,anchor_branch_id=anchor_branch_id,
+            graph=graph,target_s=target_s,policy=policy)
     from dominant_observed_branch import route_result
     from branch_absolute_core import (BranchPolicy,local_edge_scale,branch_metrics,
                                       contribution_metrics,connector_gate,route_budgets)

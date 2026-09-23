@@ -5,15 +5,33 @@ window; separate windows' labels must not be compared as global identities.
 """
 from __future__ import annotations
 import numpy as np
+from collections import Counter
 from scipy.sparse.csgraph import connected_components
 
 
 class PhysicalFaceContext:
-    def __init__(self,adjacency,lower,upper,profiles,regions=()):
+    def __init__(self,adjacency,lower,upper,profiles,regions=(),*,geometry_cache=None,levels=()):
         self.adjacency=adjacency;self.lower=lower;self.upper=upper
         self.profiles=profiles;self.regions=list(regions);self.cache={};self.used={}
+        from junction_geometry import JunctionCache
+        self.junction_cache=JunctionCache();self.geometry_cache={} if geometry_cache is None else geometry_cache
+        self.stats=Counter();self.region_decisions={};self.levels=list(levels);self.scope_audit=[]
+        self.edge_boxes={}
         ss=list(profiles)
-        self.s_faces=np.flatnonzero((upper[:,0]>=min(ss)-.2)&(lower[:,0]<=max(ss)+.2))
+        self.s_faces=np.flatnonzero((upper[:,0]>=min(ss)-.2)&(lower[:,0]<=max(ss)+.2)) if ss else np.arange(len(lower))
+
+    def region_faces(self,region):
+        key=tuple(region['bounds']);self.stats['face_cache_queries']+=1
+        if key in self.geometry_cache:
+            self.stats['face_cache_hits']+=1;return self.geometry_cache[key]
+        b=region['bounds'];lo=np.array([b[0],b[2],b[4]]);hi=np.array([b[1],b[3],b[5]])
+        # Mesh cache is independent of the current V batch: a halo may not clip
+        # the faces of a merged region. Cache scope belongs to this mesh/run.
+        ids=np.flatnonzero((self.upper[:,0]>=lo[0])&(self.lower[:,0]<=hi[0]))
+        ids=ids[np.all(self.upper[ids]>=lo,axis=1)&np.all(self.lower[ids]<=hi,axis=1)]
+        _,labels=connected_components(self.adjacency[ids][:,ids],directed=False)
+        result=dict(zip(ids.tolist(),labels.tolist()));self.geometry_cache[key]=result
+        self.stats['connected_components_calls']+=1;return result
 
     def _region(self,s,branch,z):
         candidates=[r for r in self.regions if r['bounds'][0]-1e-8<=s<=r['bounds'][1]+1e-8
@@ -30,18 +48,23 @@ class PhysicalFaceContext:
 
     def region_data(self,region):
         rid=region['region_id']
-        if rid in self.cache:return self.cache[rid]
+        self.stats['region_cache_queries']+=1
+        if rid in self.cache:self.stats['region_cache_hits']+=1;return self.cache[rid]
         b=region['bounds'];lo=np.array([b[0],b[2],b[4]]);hi=np.array([b[1],b[3],b[5]])
-        ids=self.s_faces[np.all(self.upper[self.s_faces]>=lo,axis=1)&np.all(self.lower[self.s_faces]<=hi,axis=1)]
-        _,labels=connected_components(self.adjacency[ids][:,ids],directed=False)
-        face_labels=dict(zip(ids.tolist(),labels.tolist()));members={};branches={};edge_tracks={}
+        face_labels=self.region_faces(region);members={};branches={};edge_tracks={}
         for s,bs in self.profiles.items():
             if not b[0]-1e-8<=s<=b[1]+1e-8:continue
             for branch in bs:
+                if branch['z_range'][1]<b[4] or branch['z_range'][0]>b[5] or branch['u_range'][1]<b[2] or branch['u_range'][0]>b[3]:continue
+                key=(s,branch['branch_id'])
+                if key not in self.edge_boxes:
+                    points=np.asarray([e['points_uz'] for e in branch['records']])
+                    self.edge_boxes[key]=(points.min(axis=1),points.max(axis=1))
+                low,high=self.edge_boxes[key]
+                indices=np.flatnonzero((high[:,0]>=b[2])&(low[:,0]<=b[3])&(high[:,1]>=b[4])&(low[:,1]<=b[5]))
                 found=set()
-                for e in branch['records']:
-                    p=np.asarray(e['points_uz'])
-                    if (p[:,0].max()<b[2] or p[:,0].min()>b[3] or p[:,1].max()<b[4] or p[:,1].min()>b[5]):continue
+                for index in indices:
+                    e=branch['records'][index]
                     tids={face_labels[f] for f in e['source_face_ids'] if f in face_labels}
                     edge_tracks[s,e['edge_id']]=sorted(tids)
                     found.update(tids)

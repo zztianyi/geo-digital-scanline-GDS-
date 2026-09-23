@@ -40,7 +40,7 @@ class ProductionCompetitionTests(unittest.TestCase):
         ctx=self.physical_context(bs,regions,[(anchor,bs[1]['records'][0]['face_id'])])
         result=classify_components(bs,dict(path_edges=bs[0]['records']),context=ctx,target_s=0.)
         side=[c for c in result['components'] if c.get('branch_id')==bs[1]['branch_id']]
-        self.assertEqual([c['role'] for c in side],['SIDE_OPEN_BRANCH'])
+        self.assertEqual([c['role'] for c in side],['UNUSED_OPEN_BRANCH'])
 
     def choose(self, rows):
         from competitive_surface_selection import choose_successor
@@ -69,36 +69,36 @@ class ProductionCompetitionTests(unittest.TestCase):
         self.assertEqual(self.choose(rows)['selected']['branch_id'],1)
 
     def test_junction_search_uses_dual_ASC_overlap(self):
-        _,j,audit=self.join([line(0,0,2),line(.004,.5,3)])
+        _,j,audit=self.join([line(0,0,2),line(.001,.5,3)])
         self.assertIsNotNone(j)
         self.assertTrue(j['from_in_ASC_at_junction'] and j['to_in_ASC_at_junction'])
-        self.assertEqual(j['junction_reason'],'DUAL_ASC_MIN_DISTANCE')
-        self.assertLess(j['a_point_uz'][1],1.)
+        self.assertEqual(j['junction_reason'],'TERMINAL_FIRST_2MM_CORRIDOR')
+        self.assertGreater(j['a_point_uz'][1],1.)
 
     def test_new_branch_endpoint_guard_is_not_used_for_early_switch(self):
-        _,j,audit=self.join([line(0,0,1),line(.004,.95,2)])
+        _,j,audit=self.join([line(0,0,1),line(.001,.95,2)])
         self.assertIsNone(j)
         self.assertEqual(audit['junction_reason'],'UNRESOLVED')
 
-    def test_exact_intersection_in_dual_ASC_beats_later_gap(self):
+    def test_terminal_neighborhood_precedes_earlier_exact_intersection(self):
         _,j,_=self.join([line(0,0,2),dense_path([[-.04,.3],[.04,1.2],[.006,3.]])])
         self.assertIsNotNone(j)
-        self.assertEqual(j['junction_reason'],'REAL_INTERSECTION')
-        self.assertLess(j['xyz_distance_m'],1e-9)
+        self.assertEqual(j['junction_reason'],'TERMINAL_FIRST_2MM_CORRIDOR')
+        self.assertLessEqual(j['xyz_distance_m'],.002+1e-10)
+        self.assertGreater(j['a_point_uz'][1],.75)
 
-    def test_tail_to_candidate_ASC_handoff_allowed(self):
+    def test_competitive_handoff_does_not_use_unreliable_terminal_guard(self):
         a=line(0,0,1,21)
-        b=dense_path([[.005,.85],[.005,2.]])
-        _,j,_=self.join([a,b])
-        self.assertIsNotNone(j)
-        self.assertFalse(j['from_in_ASC_at_junction'])
-        self.assertTrue(j['to_in_ASC_at_junction'])
-        self.assertEqual(j['junction_reason'],'TAIL_TO_ASC_MIN_DISTANCE')
+        b=dense_path([[.001,.85],[.001,2.]])
+        _,j,audit=self.join([a,b])
+        self.assertIsNone(j)
+        self.assertEqual(audit['junction_reason'],'UNRESOLVED')
 
     def test_no_safe_ASC_junction_remains_unresolved(self):
         _,j,audit=self.join([line(0,0,2),line(.012,.5,3)])
         self.assertIsNone(j)
-        self.assertGreater(audit['candidate_min_distance_m'],.010)
+        self.assertIsNone(audit['candidate_min_distance_m'])
+        self.assertEqual(audit['junction_reason'],'UNRESOLVED')
 
     def test_equal_identities_remain_ambiguous(self):
         rows=[dict(branch_id=i,MBG_pass=True,face_continuity=5,in_ASC=True,
@@ -114,15 +114,15 @@ class ProductionCompetitionTests(unittest.TestCase):
         j,_=reliable_junction(bs[0]['records'],bs[1]['records'],bs[0],bs[1],ma,mb,
             required=[0,2],locked_range=(np.inf,-np.inf),direction='upper')
         self.assertIsNotNone(j)
-        self.assertLess(j['xyz_distance_m'],1e-9)
-        self.assertAlmostEqual(j['a_point_uz'][1],.4)
+        self.assertLessEqual(j['xyz_distance_m'],.002+1e-10)
+        self.assertLess(abs(j['a_point_uz'][1]-.4),.005)
 
-    def test_internal_competitor_away_from_seed_is_evaluated_and_retained(self):
+    def test_through_source_is_kept_instead_of_internal_fragment_detour(self):
         from scipy import sparse
         from physical_face_context import PhysicalFaceContext
         from observed_surface_graph import build_surface_graph
         from surface_spine_pipeline import recognize_surface_spine
-        bs=fixture([line(0,0,10,101),line(.005,2,4,81)])[2]
+        bs=fixture([line(0,0,10,101),line(.001,2,4,81)])[2]
         profiles={s:(bs if s==0 else [bs[1]]) for s in (-.1,-.05,0.,.05,.1)}
         count=sum(len(b['records']) for b in bs);a=sparse.lil_matrix((count,count))
         low=np.zeros((count,3));high=np.zeros_like(low)
@@ -136,7 +136,7 @@ class ProductionCompetitionTests(unittest.TestCase):
         g=build_surface_graph([dict(s=s,branches=b) for s,b in profiles.items()])
         g['physical_face_context']=PhysicalFaceContext(a.tocsr(),low,high,profiles,regions)
         result=recognize_surface_spine(bs,g,0.)
-        self.assertEqual(result['route']['route_branch_sequence'],[0,1,0])
+        self.assertEqual(result['route']['route_branch_sequence'],[0])
         self.assertEqual(result['route']['route_z_extent'],[0.,10.])
         self.assertTrue(result['route']['local_competition_audit'])
 
@@ -169,8 +169,8 @@ class ProductionCompetitionTests(unittest.TestCase):
         layers=classify_components(bs,route_result(bs[0]['records']))
         self.assertTrue(layers['source_intervals_preserved'])
         roles={r['role'] for r in layers['components']}
-        self.assertIn('SIDE_CLOSED_COMPONENT',roles)
-        self.assertIn('AMBIGUOUS_COMPONENT',roles)
+        self.assertIn('UNUSED_CLOSED_COMPONENT',roles)
+        self.assertIn('AMBIGUOUS_UNUSED',roles)
         bundle=reconstruction_inputs(layers,[])
         self.assertEqual(bundle['side_components'],layers['SIDE_COMPONENTS'])
 

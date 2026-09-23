@@ -59,3 +59,66 @@ def _arc_records(branch,low,high):
     return result
 
 
+def _neck_corridor(outer,inner,branch,max_gap_m):
+    """Prove paired original polylines stay close over their entire neck.
+
+    Normalized arc pairing is piecewise linear. Distance is convex on each
+    combined interval, so checking all original breakpoints bounds its maximum.
+    """
+    if branch is None:return False
+    arc=np.asarray(branch['arc_positions']);xyz=np.asarray([r['points_xyz'][0] for r in branch['records']]+[branch['records'][-1]['points_xyz'][1]])
+    a,b=outer['start_arc'],inner['start_arc'];c,d=outer['end_arc'],inner['end_arc']
+    if b<a-1e-9 or d>c+1e-9:return False
+    knots=[0.,1.]
+    if b-a>1e-12:knots.extend((arc[(arc>a)&(arc<b)]-a)/(b-a))
+    if c-d>1e-12:knots.extend((c-arc[(arc>d)&(arc<c)])/(c-d))
+    t=np.unique(knots);left=a+t*(b-a);right=c+t*(d-c)
+    x=np.column_stack([np.interp(left,arc,xyz[:,k]) for k in range(3)])
+    y=np.column_stack([np.interp(right,arc,xyz[:,k]) for k in range(3)])
+    return bool(np.all(np.linalg.norm(x-y,axis=1)<=max_gap_m+1e-12))
+
+
+def near_return_families(events,*,branch=None,max_gap_m=.01):
+    """Connected pairs along two opposing path runs; gates are actual pairs.
+
+    Nested returns are linked only through adjacent source-edge pairs, avoiding
+    merging an unrelated inner loop merely because its arc interval overlaps.
+    """
+    events=list(events);parent=list(range(len(events)));index={}
+    def root(i):
+        while parent[i]!=i:parent[i]=parent[parent[i]];i=parent[i]
+        return i
+    for i,e in enumerate(events):
+        a,b=e['a_index'],e['b_index']
+        for x in range(a-1,a+2):
+            for y in range(b-1,b+2):
+                for j in index.get((x,y),[]):
+                    q=events[j]
+                    outer,inner=(e,q) if e['observed_arc_m']>=q['observed_arc_m'] else (q,e)
+                    if _neck_corridor(outer,inner,branch,max_gap_m):parent[root(i)]=root(j)
+        index.setdefault((a,b),[]).append(i)
+    # Legal pairs may be separated by triangulation vertices whose nearest
+    # pair is just outside the hard gap. Join nested pairs only when both
+    # sides advance comparably along the same neck, in the same XYZ direction.
+    # This family test never relaxes either gate's 10 mm / 0.5 m admission.
+    for i,e in enumerate(events):
+        for j,q in enumerate(events[:i]):
+            outer,inner=(e,q) if e['observed_arc_m']>=q['observed_arc_m'] else (q,e)
+            a=inner['start_arc']-outer['start_arc'];b=outer['end_arc']-inner['end_arc']
+            if min(a,b)<-1e-9 or max(a,b)<=1e-9 or min(a,b)<.75*max(a,b):continue
+            if all(k in outer and k in inner for k in ('a_xyz','b_xyz')):
+                da=np.asarray(inner['a_xyz'])-outer['a_xyz'];db=np.asarray(inner['b_xyz'])-outer['b_xyz']
+                den=np.linalg.norm(da)*np.linalg.norm(db)
+                if den>1e-15 and np.dot(da,db)/den<.9:continue
+            if _neck_corridor(outer,inner,branch,max_gap_m):parent[root(i)]=root(j)
+    groups={}
+    for i,e in enumerate(events):groups.setdefault(root(i),[]).append(e)
+    families=[]
+    for pairs in groups.values():
+        outer=min(pairs,key=lambda e:(-e['observed_arc_m'],e['start_arc'],e['D_xyz_m']))
+        nested=[e for e in pairs if e is outer or _neck_corridor(outer,e,branch,max_gap_m)]
+        inner=min(nested,key=lambda e:(e['observed_arc_m'],e['D_xyz_m']))
+        families.append(dict(outer=outer,inner=inner,pairs=pairs))
+    return sorted(families,key=lambda f:(-f['outer']['observed_arc_m'],f['outer']['start_arc']))
+
+

@@ -10,13 +10,19 @@ class BranchPolicy:
     N_core_min: int = 3
     core_length_multiplier: float = 4.
     connector_cap_m: float = .010
+    noncompetitive_gap_cap_m: float = .050
+    p1_handoff_cap_m: float = .002
+    p1_band_z_span_m: float = .100
+    p2_near_return_gap_m: float = .010
+    p2_min_path_m: float = .5
     synthetic_ratio_limit: float = 1.
     core_tie_tolerance: float = .05
     detail_tie_tolerance: float = .05
 
     def __post_init__(self):
         if (self.K_guard < 1 or self.N_core_min < 2 or self.core_length_multiplier <= 0
-                or self.connector_cap_m <= 0 or not 0 < self.synthetic_ratio_limit <= 1):
+                or min(self.connector_cap_m,self.noncompetitive_gap_cap_m,self.p1_handoff_cap_m,
+                       self.p1_band_z_span_m,self.p2_near_return_gap_m,self.p2_min_path_m) <= 0 or not 0 < self.synthetic_ratio_limit <= 1):
             raise ValueError('Invalid absolute branch policy')
 
 
@@ -79,13 +85,14 @@ def contribution_metrics(branch, records, metrics):
     """Measure the actually retained part in original canonical arc coordinates."""
     positions={int(eid):i for i,eid in enumerate(branch['edge_order'])}
     arc=np.asarray(branch['arc_positions']); total=core=0.
-    for r in records:
-        if not r['source'].startswith('OBSERVED') or r['branch_id']!=branch['branch_id']:
-            continue
-        i=positions[r['edge_id']]
-        a,b=sorted(arc[i]+np.asarray([r['t0'],r['t1']])*(arc[i+1]-arc[i]))
-        total+=b-a
-        core+=max(0.,min(b,metrics['ASC_end_arc'])-max(a,metrics['ASC_start_arc']))
+    selected=[r for r in records if r['source'].startswith('OBSERVED') and r['branch_id']==branch['branch_id']]
+    if selected:
+        ids=np.asarray([positions[r['edge_id']] for r in selected]);ts=np.asarray([[r['t0'],r['t1']] for r in selected])
+        ends=arc[ids,None]+ts*(arc[ids+1]-arc[ids])[:,None]
+        a,b=np.minimum(ends[:,0],ends[:,1]),np.maximum(ends[:,0],ends[:,1])
+        # cumsum preserves the original sequential accumulation order.
+        total=np.cumsum(b-a)[-1]
+        core=np.cumsum(np.maximum(0.,np.minimum(b,metrics['ASC_end_arc'])-np.maximum(a,metrics['ASC_start_arc'])))[-1]
     return dict(observed_new_length_m=float(total),retained_ASC_arc_length=float(core),
         contribution_pass=bool(metrics['MBG_pass'] and core+1e-12>=metrics['minimum_core_arc_length']))
 
@@ -131,16 +138,17 @@ def directional_branch_metrics(branch, arc_position, direction, *, edge_scale,
         forward_same_H_run_levels=support.get('same_H_run_level_count', 0))
 
 
-def connector_gate(synthetic_length, observed_new_length, policy=None):
+def connector_gate(synthetic_length, observed_new_length, policy=None, *, cap_m=None):
     policy=policy or BranchPolicy()
     ratio=synthetic_length/observed_new_length if observed_new_length>0 else float('inf')
-    reason=('LONG_GAP_UNRESOLVED' if synthetic_length>policy.connector_cap_m+1e-12 else
+    cap=policy.connector_cap_m if cap_m is None else cap_m
+    reason=('LONG_GAP_UNRESOLVED' if synthetic_length>cap+1e-12 else
             'REJECT_SYNTHETIC_DOMINANCE' if ratio>=policy.synthetic_ratio_limit else 'ACCEPT_CONNECTOR')
     return dict(accepted=reason=='ACCEPT_CONNECTOR',reason=reason,R_syn=float(ratio),
                 L_syn=float(synthetic_length),L_obs_new=float(observed_new_length))
 
 
-def route_budgets(records, branches, metrics, policy=None):
+def route_budgets(records, branches, metrics, policy=None, *, require_core=True):
     """Charge both adjacent connectors to each contiguous observed contribution."""
     groups=[]; pending=0.
     for record in records:
@@ -161,7 +169,8 @@ def route_budgets(records, branches, metrics, policy=None):
         # The hard cap applies to each connector, not the sum of two legal
         # connectors. The ratio, however, must include both of them.
         ratio_ok=gate['R_syn']<(policy or BranchPolicy()).synthetic_ratio_limit
-        core_ok=contribution['contribution_pass'] if 0<i<len(groups)-1 else True
+        core_ok=(contribution['contribution_pass'] if require_core else
+                 contribution['observed_new_length_m']+1e-12>=metrics[bid]['minimum_core_arc_length']) if 0<i<len(groups)-1 else True
         budgets.append(dict(branch_id=bid,**contribution,incident_synthetic_m=group['incoming']+group['outgoing'],
             combined_R_syn=gate['R_syn'],accepted=bool(ratio_ok and core_ok),
             reason='REJECT_SYNTHETIC_DOMINANCE' if not ratio_ok else 'REJECT_SHORT_DETOUR' if not core_ok else 'PASS_ROUTE_BUDGET'))
